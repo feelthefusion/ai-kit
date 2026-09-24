@@ -109,7 +109,18 @@ Pick from the live catalog: `ai-models suggest` · admin console overrides these
 PY
     echo "  · .agents/ai-stack.md drafted — fill the ? lines ✓"
 else
-    echo "  · .agents/ai-stack.md exists (kept) ✓"
+    # kept — except drafted "not found" lines that are no longer true (a line you edited is never touched)
+    python3 - .agents/ai-stack.md <<'PY'
+import os, sys
+p = sys.argv[1]; s = open(p).read(); o = s
+if os.path.exists(".agents/growth-stack.md"):
+    s = s.replace("ai-analytics' own collector (no Marketing Kit growth-stack found)",
+                  "Marketing Kit journey-analytics (crm_events) — AI events are forwarded, never duplicated")
+if os.path.exists(".agents/security-context.md"):
+    s = s.replace("Security Kit context: not initialised (optional: sec-init)", "Security Kit context: present — AI surface block appended")
+if s != o: open(p, "w").write(s); print("  · .agents/ai-stack.md kept — sibling-kit lines refreshed ✓")
+else: print("  · .agents/ai-stack.md exists (kept) ✓")
+PY
 fi
 
 [ -f .agents/ai-kit.env ] || { printf '# AI Kit per-repo tool env — gitignored (app runtime env lives in .env / Railway)\n' > .agents/ai-kit.env; echo "  · .agents/ai-kit.env created ✓"; }

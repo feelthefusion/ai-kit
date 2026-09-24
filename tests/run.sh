@@ -145,6 +145,13 @@ git -C "$R2" remote add origin https://github.com/test/app.git; I >/dev/null 2>&
 w="$R2/.github/workflows/ai-kit-sync.yml"
 [ -f "$w" ] && grep -q "feelthefusion/ai-kit" "$w" && ! grep -q "__KIT_REPO__" "$w" && ok "GitHub app repo → webhook receiver workflow with the kit slug filled in" || bad "ai-kit-sync.yml"
 
+R3="$T/late"; mkdir -p "$R3"; git -C "$R3" init -q; echo '{"name":"late"}' > "$R3/package.json"
+(cd "$R3" && env HOME="$H" XDG_CONFIG_HOME="$H/.config" PATH="$KIT/bin:/usr/bin:/bin:$(dirname "$(command -v node)")" bash "$KIT/install/init-project.sh" >/dev/null 2>&1)
+echo "# my edit: custom tracker" >> "$R3/.agents/ai-stack.md"; mkdir -p "$R3/.agents"; echo "# Growth stack" > "$R3/.agents/growth-stack.md"
+(cd "$R3" && env HOME="$H" XDG_CONFIG_HOME="$H/.config" PATH="$KIT/bin:/usr/bin:/bin:$(dirname "$(command -v node)")" bash "$KIT/install/init-project.sh" >/dev/null 2>&1)
+grep -q "Site-wide events: Marketing Kit journey-analytics" "$R3/.agents/ai-stack.md" && grep -q "my edit: custom tracker" "$R3/.agents/ai-stack.md" \
+  && ok "Marketing Kit added later → drafted tracking line refreshed, user edits kept" || bad "late sibling refresh"
+
 echo "▶ ai-doctor (app checks)"
 D2() { (cd "$R2" && env HOME="$H" XDG_CONFIG_HOME="$H/.config" AI_UPSTREAM="$T/upstream-none" PATH="$KIT/bin:/usr/bin:/bin:$(dirname "$(command -v node)")" bash "$KIT/bin/ai-doctor" 2>&1); }
 out="$(D2)"; code=$?
@@ -152,6 +159,13 @@ grep -q "✗ compression() filter" <<<"$out" && [ $code != 0 ] && ok "flags the 
 grep -q "AI_APPROVAL_SECRET set" <<<"$out" && grep -q "key mode: mixed" <<<"$out" && ok "reads key mode + secrets from the repo env" || bad "env checks: $(grep -E 'key mode|APPROVAL' <<<"$out")"
 echo 'app.use(compression({ filter: (req, res) => !String(res.getHeader("Content-Type") || "").startsWith("text/event-stream") && compression.filter(req, res) }));' > "$R2/server/index.ts"
 grep -q "compression skips text/event-stream" <<<"$(D2)" && ok "passes once the filter checks the response Content-Type" || bad "fixed filter still flagged"
+
+echo "▶ an install never dirties its own clone (else self-update is blocked forever)"
+CL="$T/clone"; git -C "$KIT" checkout-index -a --prefix="$CL/"   # the COMMITTED state, file modes included
+( cd "$CL" && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm c )
+( source "$CL/install/lib.sh" >/dev/null 2>&1; AI_BIN="$T/bin"; link_bins "$CL" >/dev/null 2>&1 )
+[ -z "$(git -C "$CL" status --porcelain)" ] && ok "link_bins leaves the clone clean (scripts committed executable)" || bad "install dirtied the clone: $(git -C "$CL" status --porcelain | tr '\n' ' ')"
+chmod -x "$CL/bin/ai-doctor"; ( source "$CL/install/lib.sh" >/dev/null 2>&1; KIT_NO_PULL=0 kit_self_update "$CL" 2>&1 ) | grep -q "local changes" && bad "a mode-only change still blocks self-update" || ok "a mode-only change never blocks self-update"
 
 echo "▶ living updates: ai-update (event-driven, offline via local bare repos)"
 LU="$T/lu"; mkdir -p "$LU/remotes" "$LU/home" "$LU/proj"

@@ -37,6 +37,8 @@ kit_self_update() {  # $1 = kit root
     [ "${KIT_NO_PULL:-0}" = 1 ] && { say "▶ self-update skipped (KIT_NO_PULL=1)"; return 0; }
     git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || { say "▶ self-update skipped — not a git clone"; return 0; }
     say "▶ self-update: pulling latest AI Kit"
+    # mode-only diffs (an installer chmod +x) never count as local changes — they'd block every future update
+    git -C "$root" config core.fileMode false 2>/dev/null || true
     if [ -n "$(git -C "$root" status --porcelain)" ]; then warn "local changes — not pulling (commit/stash to get updates)"; return 0; fi
     before="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo none)"
     git -C "$root" pull --ff-only --quiet 2>/dev/null || { warn "pull failed (offline/diverged/no upstream yet) — using local copy"; return 0; }

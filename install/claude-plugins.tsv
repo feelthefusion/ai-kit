@@ -1,0 +1,8 @@
+# Claude Code plugins — installed from each vendor's OWN marketplace (live; updated every run).
+# scope: project = enabled per repo by `ai-init` → .claude/settings.json (never globally: vendor packs
+#                  cost tokens in every session). Marketing Kit enables the same resend plugin for its
+#                  sending work — enabling an already-enabled plugin is a no-op, never a second copy.
+# Strategy/technique skills are NOT plugins: they come from install/upstream-skills.tsv.
+# plugin@marketplace	marketplace repo	scope	kit component
+resend@resend-skills	resend/resend-skills	project	ai-channels email bot (agent-email-inbox: inbound, threading, replies) + hosted MCP
+telnyx-ai@telnyx	team-telnyx/ai	project	ai-channels SMS/voice AI assistants + Telnyx inference (same account as SMS)

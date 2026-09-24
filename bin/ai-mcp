@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AI Kit — MCP launcher.
+#
+#   ai-mcp site [project-dir]    the app's OWN action registry as an MCP server (stdio), so Claude
+#                                Code / Hermes can run the site: "find Jane's last order and skip her
+#                                next shipment". Same actions, permissions and audit trail as the
+#                                chat bot; channel = "mcp". ai-init registers it per repo.
+#
+# Runs `npm run -s ai:mcp` in the project (your script → a file calling site-agent mcp.ts serveStdio()).
+# Env: ~/.config/ai-kit/secrets.env, then the repo's .env; staff identity AI_MCP_STAFF (default
+# "owner") with AI_MCP_PERMISSIONS (default "*").
+# =============================================================================
+set -euo pipefail
+SECRETS="${AI_SECRETS:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-kit/secrets.env}"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+die() { echo "ai-mcp: $*" >&2; exit 1; }
+server="${1:-}"; shift || true
+project_dir() {
+    local d="${1:-}"; case "$d" in ''|'${'*) d="" ;; esac
+    [ -n "$d" ] && [ -d "$d" ] || d="${CLAUDE_PROJECT_DIR:-$PWD}"
+    printf '%s\n' "$d"
+}
+case "$server" in
+    site)
+        dir="$(project_dir "${1:-}")"; cd "$dir"
+        [ -f package.json ] || die "no package.json in $dir — run from the app repo"
+        grep -q "\"ai:mcp\"" package.json || die "no ai:mcp script in $dir — wire site-agent mcp.ts (serveStdio) as \"ai:mcp\", then ai-init registers it"
+        # shellcheck disable=SC1090
+        [ -f "$SECRETS" ] && { set -a; . "$SECRETS"; set +a; }
+        # shellcheck disable=SC1091
+        [ -f .env ] && { set -a; . ./.env; set +a; }
+        export AI_MCP_STAFF="${AI_MCP_STAFF:-owner}" AI_MCP_PERMISSIONS="${AI_MCP_PERMISSIONS:-*}"
+        exec npm run -s ai:mcp ;;
+    -h|--help|"") sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; [ -n "$server" ] || exit 2 ;;
+    *) die "unknown server '$server' (site)" ;;
+esac

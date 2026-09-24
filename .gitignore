@@ -1,0 +1,17 @@
+# node / app noise
+node_modules/
+/node_modules
+dist/
+build/
+.next/
+coverage/
+
+# kit runtime
+.agents/ai-kit.env
+.agents/.ai-kit-version
+
+# upstream checkouts are fetched live, never committed
+.cache/
+
+# os
+.DS_Store

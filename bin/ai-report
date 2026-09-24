@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""AI Kit — AI analytics in the terminal (same queries as the admin AI console).
+
+  ai-report [--days N] [--from ISO --to ISO] [QUERY ...]   default: every query, last 7 days
+  ai-report --list                                           query names
+  ai-report --sql QUERY                                      print the SQL (paste into any client)
+  ai-report --csv [QUERY ...]                                machine-readable rows (exit 1 if any query fails)
+  ai-report --which-db                                       which database it would use (credentials masked)
+
+Queries live in skills/ai-analytics/references/analytics.sql (`-- name: …` blocks): spend by
+task/model, daily spend, conversations by channel (resolution, handoff, CSAT), top intents, actions
++ confirm-card acceptance, AI-attributed revenue, cost per resolution, automations, guard stops,
+spend anomalies. Money is micro-dollars in the DB; shown as $.
+
+Database: AI_DATABASE_URL → DATABASE_PUBLIC_URL → DATABASE_URL from env, the repo's .env/.env.local,
+or `railway variables` (skips *.railway.internal, which only resolves inside Railway). Needs psql.
+Credentials are never printed.
+"""
+import json, os, re, shutil, subprocess, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+KIT = Path(os.path.realpath(__file__)).parent.parent
+SQL = KIT / "skills/ai-analytics/references/analytics.sql"
+
+def queries():
+    out, name, buf = {}, None, []
+    for line in SQL.read_text().splitlines():
+        m = re.match(r"^-- name: ([a-z_]+)", line)
+        if m:
+            if name: out[name] = "\n".join(buf).strip()
+            name, buf = m.group(1), []
+        elif name: buf.append(line)
+    if name: out[name] = "\n".join(buf).strip()
+    return out
+
+def repo_root():
+    r = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return Path(r.stdout.strip()) if r.returncode == 0 else Path.cwd()
+
+def db_url():
+    keys = ["AI_DATABASE_URL", "DATABASE_PUBLIC_URL", "DATABASE_URL"]
+    cands = [os.environ.get(k) for k in keys]
+    root = repo_root()
+    for f in (".env.local", ".env"):
+        try:
+            kv = dict(re.findall(r'^\s*(?:export\s+)?([A-Z_]+)=["\']?([^"\'\n]+)', (root / f).read_text(), re.M))
+            cands += [kv.get(k) for k in keys]
+        except Exception: pass
+    if shutil.which("railway"):
+        try:
+            r = subprocess.run(["railway", "variables", "--json"], cwd=root, capture_output=True, text=True, timeout=20)
+            if r.returncode == 0: v = json.loads(r.stdout); cands += [v.get(k) for k in keys]
+        except Exception: pass
+    for c in cands:
+        if c and ".railway.internal" not in c: return c
+    return None
+
+def redact(s): return re.sub(r"://([^:/@]+):[^@]+@", r"://\1:***@", s)
+
+def main(a):
+    qs = queries()
+    if "--list" in a: print("\n".join(qs)); return
+    if "--sql" in a:
+        n = a[a.index("--sql") + 1]; print(qs[n]); return
+    if "--which-db" in a:
+        u = db_url(); print(redact(u) if u else "none"); return
+    days = int(a[a.index("--days") + 1]) if "--days" in a else 7
+    to = a[a.index("--to") + 1] if "--to" in a else datetime.now(timezone.utc).isoformat()
+    frm = a[a.index("--from") + 1] if "--from" in a else (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    skip = {a[i + 1] for i, x in enumerate(a) if x in ("--days", "--from", "--to")}
+    names = [x for x in a if not x.startswith("--") and x not in skip] or list(qs)
+    bad = [n for n in names if n not in qs]
+    if bad: sys.exit(f"✗ unknown query {bad} — ai-report --list")
+    if not shutil.which("psql"): sys.exit("✗ psql not found (brew install libpq && brew link --force libpq) — or: ai-report --sql <name>")
+    url = db_url()
+    if not url: sys.exit("✗ no database URL (AI_DATABASE_URL / DATABASE_PUBLIC_URL / DATABASE_URL, .env, or railway link)")
+    print(f"AI report · {frm[:10]} → {to[:10]} · {redact(url).split('@')[-1].split('/')[0]}")
+    fmt = ["--csv"] if "--csv" in a else ["-P", "pager=off", "-P", "footer=off"]
+    failed = 0
+    for n in names:
+        sql = qs[n].replace(":from", "'" + frm.replace("'", "") + "'::timestamptz").replace(":to", "'" + to.replace("'", "") + "'::timestamptz")
+        print(f"\n▶ {n}")
+        r = subprocess.run(["psql", url, "-X", "-q", *fmt, "-v", "ON_ERROR_STOP=1", "-c", sql], capture_output=True, text=True)
+        if r.returncode == 0: print(r.stdout.rstrip() or "  (no rows)")
+        else: failed += 1; print("  ✗ " + redact(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "failed"))
+    if failed: sys.exit(1)
+
+if __name__ == "__main__":
+    if any(x in ("-h", "--help") for x in sys.argv[1:]): print(__doc__); sys.exit(0)
+    main(sys.argv[1:])

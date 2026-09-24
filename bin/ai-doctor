@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AI Kit — doctor.   ai-doctor            (anywhere: kit install · in an app repo: the app's AI too)
+# Every line is a check that passed (✓), a warning with the fix (⚠), or a failure (✗).
+# =============================================================================
+set -uo pipefail
+SELF="${BASH_SOURCE[0]}"; while [ -L "$SELF" ]; do SELF="$(readlink "$SELF")"; done
+KIT_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+case "${1:-}" in -h|--help) sed -n '3,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# shellcheck source=install/lib.sh
+source "$KIT_ROOT/install/lib.sh"
+pass=0; warns=0; fails=0
+P() { printf '  ✓ %s\n' "$*"; pass=$((pass+1)); }
+W() { printf '  ⚠ %s\n' "$*"; warns=$((warns+1)); }
+F() { printf '  ✗ %s\n' "$*"; fails=$((fails+1)); }
+
+echo "AI Kit doctor · kit $(git -C "$KIT_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?') at $KIT_ROOT"
+echo "▶ install"
+for host in "$HOME/.claude/skills" "${HERMES_HOME:-$HOME/.hermes}/skills/ai"; do
+    [ -d "$host" ] || continue
+    n=0; for s in $KIT_SKILLS; do [ -L "$host/$s" ] && [ -f "$host/$s/SKILL.md" ] && n=$((n+1)); done
+    [ "$n" = "$(echo $KIT_SKILLS | wc -w | tr -d ' ')" ] && P "$n kit skills linked in $host" || F "$n/$(echo $KIT_SKILLS | wc -w | tr -d ' ') kit skills linked in $host — re-run the installer"
+done
+for b in $KIT_BINS ai-init; do command -v "$b" >/dev/null 2>&1 || { F "$b not on PATH — re-run the installer"; continue; }; done
+command -v ai-init >/dev/null 2>&1 && P "CLIs on PATH"
+n_up=0; n_all=0
+while IFS=$'\t' read -r ident _; do n_all=$((n_all+1)); repo="$(cut -d/ -f1-2 <<<"$ident")"; path="$(cut -d/ -f3- <<<"$ident")"
+    [ -f "$(upstream_dir "$repo")/$path/SKILL.md" ] && n_up=$((n_up+1)); done < <(upstream_rows "$KIT_ROOT")
+[ "$n_up" = "$n_all" ] && P "$n_up/$n_all curated upstream skills checked out ($AI_UPSTREAM)" || W "$n_up/$n_all curated upstream skills checked out — ai-update (or re-run the installer)"
+grep -q "ai-update" "$HOME/.claude/settings.json" 2>/dev/null && P "Claude Code SessionStart → ai-update" || W "Claude Code SessionStart hook missing — re-run install/install.sh"
+command -v hermes >/dev/null 2>&1 && { hermes config get --json hooks.on_session_start 2>/dev/null | grep -q ai-update && P "Hermes on_session_start → ai-update" || W "Hermes hook missing — re-run install/hermes.sh"; }
+[ -f "$AI_SECRETS" ] && [ "$(stat -f %Lp "$AI_SECRETS" 2>/dev/null || stat -c %a "$AI_SECRETS")" = 600 ] && P "secrets file is 600" || W "secrets file missing or not 600 ($AI_SECRETS)"
+t="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("checked_at",""))' "$AI_CONF/update-state.json" 2>/dev/null)"
+[ -n "$t" ] && P "last upstream check $(( ($(date +%s) - t) / 60 )) min ago" || W "never checked upstreams — ai-update"
+v="$(node -v 2>/dev/null | tr -d v | cut -d. -f1)"; [ -n "$v" ] && [ "$v" -ge 22 ] && P "node $(node -v) (AI SDK v7 needs ≥22)" || F "node ≥22 required by AI SDK v7 (have: $(node -v 2>/dev/null || echo none))"
+[ -d "$HOME/.marketing-kit" ] || [ -d "$HOME/marketing-kit" ] && P "Marketing Kit present — AI events hand off to journey-analytics; sending via lifecycle-engine" || W "Marketing Kit not installed — ai-analytics + ai-channels use their own collector/sender"
+[ -d "$HOME/.security-kit" ] || [ -d "$HOME/security-kit" ] && P "Security Kit present — red-team covers the AI surface" || W "Security Kit not installed (optional) — ai-eval redteam still works"
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$ROOT" ] && [ -f "$ROOT/package.json" ]; then
+    echo "▶ app · $ROOT"
+    cd "$ROOT"
+    [ -f .agents/ai-stack.md ] && P ".agents/ai-stack.md present" || W "no .agents/ai-stack.md — ai-init"
+    pyout="$(mktemp)"
+    python3 - "$ROOT" > "$pyout" <<'PY'
+import json, os, re, subprocess, sys
+root = sys.argv[1]
+def P(m): print(f"  ✓ {m}")
+def W(m): print(f"  ⚠ {m}")
+def F(m): print(f"  ✗ {m}")
+pkg = json.load(open(os.path.join(root, "package.json")))
+deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+def ver(n):
+    try: return json.load(open(os.path.join(root, "node_modules", n, "package.json")))["version"]
+    except Exception: return None
+v = ver("ai") or (deps.get("ai") or "").lstrip("^~")
+if not v: W("`ai` (AI SDK) not installed — npm i ai@latest @openrouter/ai-sdk-provider@latest zod@latest")
+elif int(v.split(".")[0]) < 7: F(f"AI SDK {v} — the kit's references are v7 (npm i ai@latest; codemods: npx @ai-sdk/codemod upgrade)")
+else: P(f"AI SDK {v}")
+if "openai" in deps and "ai" not in deps: W("raw `openai` SDK in use — route model calls through llm-router (one integration, any provider)")
+env = {}
+for f in (".env", ".env.local"):
+    try: env.update(dict(re.findall(r'^\s*(?:export\s+)?([A-Z0-9_]+)=["\']?([^"\'\n]*)', open(os.path.join(root, f)).read(), re.M)))
+    except Exception: pass
+env.update({k: v for k, v in os.environ.items() if k.startswith(("AI_", "OPENROUTER_"))})
+mode = env.get("AI_KEY_MODE") or ("openrouter" if env.get("OPENROUTER_API_KEY") else "byok")
+P(f"key mode: {mode}{' (implicit)' if not env.get('AI_KEY_MODE') else ''}")
+if mode in ("openrouter", "mixed") and not env.get("OPENROUTER_API_KEY"): W("OPENROUTER_API_KEY not in local env (fine if it's only on Railway / in the admin console)")
+for k, why in (("AI_APPROVAL_SECRET", "signs every write approval — without it write actions can't run"), ("AI_KEYS_SECRET", "encrypts provider keys added in the admin console")):
+    (P if env.get(k) else W)(f"{k} {'set' if env.get(k) else 'missing — ai-settings secrets (' + why + ')'}")
+# compression buffers SSE + the chat stream unless the filter checks the RESPONSE content-type
+src = ""
+for dp, dn, fn in os.walk(root):
+    dn[:] = [d for d in dn if d not in ("node_modules", ".git", "dist", "build", ".next", "client", "public")]
+    for f in fn:
+        if f.endswith((".ts", ".js", ".mjs")):
+            try: src += open(os.path.join(dp, f), encoding="utf-8", errors="ignore").read() + "\n"
+            except Exception: pass
+if re.search(r"\bcompression\s*\(", src):
+    if re.search(r"getHeader\(\s*[\"']content-type[\"']\s*\)[^\n]*event-stream", src, re.I): P("compression skips text/event-stream responses (chat + SSE stream live)")
+    else: F("compression() filter doesn't check the RESPONSE Content-Type — AI chat streams (Accept: */*) get gzip-buffered and look frozen. Fix: filter: (req,res) => !String(res.getHeader('Content-Type')||'').startsWith('text/event-stream') && compression.filter(req,res)")
+if re.search(r"from\s+[\"'][^\"']*ai-schema|pgTable\(\s*[\"']ai_calls[\"']", src): P("AI schema wired (ai_calls …)")
+else: W("AI schema not found — copy skills/ai-kit/references/ai-schema.ts to shared/schema/ai.ts + drizzle-kit generate")
+if re.search(r"ToolLoopAgent", src):
+    P("site-agent present (ToolLoopAgent)")
+    if not re.search(r"experimental_toolApprovalSecret", src): F("agent without experimental_toolApprovalSecret — approvals are forgeable; see site-agent agent.ts")
+    if not re.search(r"identityScrub|sendReasoning:\s*false", src): W("no identity scrub / sendReasoning:false found — customer bots could name the model")
+fp = [n for n in ("@fingerprintjs/fingerprintjs", "@fingerprint/agent") if n in deps]
+(P if fp else W)(f"visitor id: {', '.join(fp)}" if fp else "no FingerprintJS dep — visitor-intel (npm i @fingerprintjs/fingerprintjs@latest)")
+if os.path.exists(os.path.join(root, "evals", "cases.json")): P(f"eval suite: {len(json.load(open(os.path.join(root, 'evals', 'cases.json'))))} cases")
+else: W("no evals/cases.json — ai-init")
+PY
+    py="$(cat "$pyout")"; rm -f "$pyout"
+    echo "$py"
+    pass=$((pass + $(grep -c "^  ✓" <<<"$py"))); warns=$((warns + $(grep -c "^  ⚠" <<<"$py"))); fails=$((fails + $(grep -c "^  ✗" <<<"$py")))
+    out="$(bash "$KIT_ROOT/bin/ai-update" --deps 2>/dev/null | grep '↑' || true)"
+    [ -z "$out" ] && P "AI packages at npm latest" || W "AI packages behind npm latest: $(echo "$out" | sed 's/^ *↑ //' | paste -sd ',' - ) — ai-update --deps --apply"
+fi
+echo "── $pass ok · $warns warn · $fails fail"
+[ "$fails" = 0 ]

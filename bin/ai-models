@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""AI Kit — live model catalog (the same data the admin console's pickers use).
+
+  ai-models [search] [QUERY] [--tools] [--max IN_PER_MTOK] [--ctx MIN_K] [--limit N]
+  ai-models new                 models that appeared since you last looked (and ones retired)
+  ai-models providers           every provider the router supports, its env names, key set?
+  ai-models suggest             candidates per task (chat, copilot, guard, …) from the live catalog
+  ai-models show <provider/model>   one model: pricing, context, modalities, parameters
+  --json on any command for machine output.
+
+Source: OpenRouter's public catalog (https://openrouter.ai/api/v1/models, no key needed) — 300+
+models from every major lab, refreshed live. Refs in the app are "<provider>:<model>", e.g.
+anthropic:claude-sonnet-5 → OpenRouter slug anthropic/claude-sonnet-5 (llm-router maps both ways).
+"""
+import json, os, re, sys, time, urllib.request
+from pathlib import Path
+
+KIT = Path(os.path.realpath(__file__)).parent.parent
+CONF = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ai-kit"
+SEEN = CONF / "models-seen.json"
+CACHE = CONF / "models-cache.json"
+SECRETS = Path(os.environ.get("AI_SECRETS", CONF / "secrets.env"))
+URL = os.environ.get("AI_MODELS_URL", "https://openrouter.ai/api/v1/models")
+
+def catalog(max_age=900):
+    if CACHE.exists() and time.time() - CACHE.stat().st_mtime < max_age and not os.environ.get("AI_MODELS_URL"):
+        return json.loads(CACHE.read_text())
+    req = urllib.request.Request(URL, headers={"User-Agent": "ai-kit"})
+    try:
+        data = json.load(urllib.request.urlopen(req, timeout=20))["data"]
+    except Exception as e:
+        if CACHE.exists(): print(f"  ⚠ catalog fetch failed ({e}) — using cache", file=sys.stderr); return json.loads(CACHE.read_text())
+        sys.exit(f"✗ catalog fetch failed: {e}")
+    CONF.mkdir(parents=True, exist_ok=True); CACHE.write_text(json.dumps(data))
+    return data
+
+def per_m(v):
+    try: return float(v) * 1e6
+    except Exception: return None
+def row(m):
+    p = m.get("pricing") or {}
+    return {"id": m["id"], "ref": m["id"].replace("/", ":", 1), "name": m.get("name", ""), "ctx": m.get("context_length") or 0,
+            "in": per_m(p.get("prompt")), "out": per_m(p.get("completion")),
+            "tools": "tools" in (m.get("supported_parameters") or []), "created": m.get("created") or 0,
+            "modalities": (m.get("architecture") or {}).get("input_modalities") or []}
+def fmt_price(v): return "  free" if v == 0 else ("     ?" if v is None else f"{v:6.2f}")
+def table(rows, limit):
+    print(f"  {'model (ref for the app)':<52} {'ctx':>7} {'$in/M':>6} {'$out/M':>6} tools")
+    for r in rows[:limit]:
+        print(f"  {r['ref'][:52]:<52} {r['ctx']//1000:>6}k {fmt_price(r['in'])} {fmt_price(r['out'])}  {'✓' if r['tools'] else '·'}")
+    if len(rows) > limit: print(f"  … {len(rows)-limit} more (--limit N)")
+
+def keys_present():
+    have = set(k for k, v in os.environ.items() if v)
+    for f in [SECRETS, Path(os.popen("git rev-parse --show-toplevel 2>/dev/null").read().strip() or ".") / ".env"]:
+        try:
+            for l in f.read_text().splitlines():
+                m = re.match(r"^\s*(?:export\s+)?([A-Z0-9_]+)=(.+)$", l)
+                if m and m.group(2).strip().strip('"\''): have.add(m.group(1))
+        except Exception: pass
+    return have
+
+def main(argv):
+    as_json = "--json" in argv; argv = [a for a in argv if a != "--json"]
+    cmd = argv[0] if argv and argv[0] in ("search", "new", "providers", "suggest", "show") else "search"
+    if argv and argv[0] == cmd: argv = argv[1:]
+    opt = lambda k, d=None: (argv[argv.index(k) + 1] if k in argv and argv.index(k) + 1 < len(argv) else d)
+
+    if cmd == "providers":
+        cat = json.loads((KIT / "skills/llm-router/references/providers.json").read_text())["providers"]
+        have = keys_present()
+        out = [{"id": p["id"], "name": p.get("name", p["id"]), "env": p["env"], "key": any(e in have for e in p["env"]) or bool(p.get("keyless")),
+                "gateway": bool(p.get("gateway")), "package": p.get("pkg")} for p in cat]
+        if as_json: print(json.dumps(out, indent=2)); return
+        print("  provider      key   env (any one)                                   package")
+        for p in out:
+            print(f"  {p['id']:<13} {'✓' if p['key'] else '·':<5} {' | '.join(p['env'])[:46]:<46}  {p['package'] or ''}{'  (gateway: any model)' if p['gateway'] else ''}")
+        print("\n  add a key: ai-settings key <ENV_NAME> [--railway]   ·   or one key for everything: ai-settings key OPENROUTER_API_KEY")
+        return
+
+    rows = [row(m) for m in catalog()]
+    if cmd == "show":
+        want = (argv[0] if argv else "").replace(":", "/", 1)
+        m = next((m for m in catalog() if m["id"] == want), None)
+        if not m: sys.exit(f"✗ {want} not in the catalog — ai-models search {want.split('/')[-1]}")
+        print(json.dumps(m, indent=2)); return
+
+    if cmd == "new":
+        seen = json.loads(SEEN.read_text()) if SEEN.exists() else None
+        ids = {r["id"] for r in rows}
+        CONF.mkdir(parents=True, exist_ok=True); SEEN.write_text(json.dumps(sorted(ids)))
+        if seen is None: print(f"  · baseline saved ({len(ids)} models) — `ai-models new` shows changes from now on"); return
+        added = sorted((r for r in rows if r["id"] not in set(seen)), key=lambda r: -r["created"]); retired = sorted(set(seen) - ids)
+        if as_json: print(json.dumps({"added": added, "retired": retired}, indent=2)); return
+        if added: print(f"▶ {len(added)} new"); table(added, 50)
+        if retired: print(f"▶ {len(retired)} retired (ai-evolve fails any task using them over to its fallback)"); [print("  ✗", r.replace("/", ":", 1)) for r in retired]
+        if not added and not retired: print("  ✓ no catalog changes since last look")
+        return
+
+    if cmd == "suggest":
+        live = [r for r in rows if r["in"] is not None and r["out"] is not None and not r["id"].endswith(":free")]
+        tools = [r for r in live if r["tools"]]
+        recent = lambda rs: sorted(rs, key=lambda r: -r["created"])
+        cheap = lambda rs: sorted(rs, key=lambda r: (r["in"] + r["out"] * 3))
+        picks = {
+            "chat / channel_reply (tools, strong, recent)": recent([r for r in tools if r["ctx"] >= 128_000 and (r["in"] or 0) >= 0.5])[:6],
+            "copilot / automation (tools, long context)": recent([r for r in tools if r["ctx"] >= 200_000])[:6],
+            "guard / classify (cheapest with tools)": cheap([r for r in tools if r["ctx"] >= 32_000 and r["in"] > 0])[:6],
+            "summarize (cheap, long context)": cheap([r for r in live if r["ctx"] >= 128_000 and r["in"] > 0])[:6],
+        }
+        if as_json: print(json.dumps(picks, indent=2)); return
+        for k, rs in picks.items(): print(f"▶ {k}"); table(rs, 6)
+        print("\n  pick per task in the admin AI console, or set repo defaults in shared/ai-config.ts;")
+        print("  ai-evolve canaries new challengers automatically (eval-gated) — see skill ai-evolve.")
+        return
+
+    q = (argv[0] if argv and not argv[0].startswith("--") else "").lower()
+    rs = [r for r in rows if q in r["id"].lower() or q in r["name"].lower()]
+    if "--tools" in argv: rs = [r for r in rs if r["tools"]]
+    if opt("--max"): rs = [r for r in rs if r["in"] is not None and r["in"] <= float(opt("--max"))]
+    if opt("--ctx"): rs = [r for r in rs if r["ctx"] >= int(opt("--ctx")) * 1000]
+    rs.sort(key=lambda r: -r["created"])
+    if as_json: print(json.dumps(rs, indent=2)); return
+    print(f"▶ {len(rs)} models{f' matching “{q}”' if q else ''} (newest first)"); table(rs, int(opt("--limit", 40)))
+
+if __name__ == "__main__":
+    if any(a in ("-h", "--help") for a in sys.argv[1:]): print(__doc__); sys.exit(0)
+    main(sys.argv[1:])

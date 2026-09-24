@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AI Kit — webhooks for the repos YOU own (the only upstream GitHub will webhook).
+#
+#   kit push to main ──webhook──▶ .github/workflows/notify-projects.yml (kit repo)
+#                    ──repository_dispatch──▶ <project>/.github/workflows/ai-kit-sync.yml
+#                    ──▶ re-sync with the latest kit ──▶ one PR in the project
+#
+#   ai-webhooks token          one-time: store a fine-grained token as the kit repo's secret
+#   ai-webhooks add [o/r]      register a project (default: the repo you're in)
+#   ai-webhooks remove [o/r]
+#   ai-webhooks status         registered projects, token present, last dispatch runs
+#   ai-webhooks test           fire the webhook now (same path a kit push takes)
+#
+# Vendor upstreams (Resend, Telnyx, AI SDK, OpenRouter, Hugging Face…) can't webhook repos they don't
+# own — those are caught by `ai-update` on session start.
+# =============================================================================
+set -euo pipefail
+SELF="${BASH_SOURCE[0]}"; while [ -L "$SELF" ]; do SELF="$(readlink "$SELF")"; done
+KIT_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+slug() { sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##'; }
+KIT="$( (git -C "$KIT_ROOT" remote get-url origin 2>/dev/null || true) | slug)"; KIT="${KIT:-feelthefusion/ai-kit}"
+VAR=AI_PROJECT_REPOS; SECRET=AI_DISPATCH_TOKEN
+die() { echo "✗ $*" >&2; exit 1; }
+command -v gh >/dev/null || die "needs the GitHub CLI (gh) — brew install gh && gh auth login"
+here() { git remote get-url origin 2>/dev/null | grep -q github.com || die "not in a GitHub repo — pass owner/repo"; git remote get-url origin | slug; }
+repos() { gh variable get "$VAR" --repo "$KIT" 2>/dev/null || true; }
+
+case "${1:-status}" in
+    token)
+        cat <<EOF
+One-time setup — a fine-grained token the kit repo uses to send the webhook:
+  1. https://github.com/settings/personal-access-tokens/new
+       Repository access: Only select repositories → your project repos
+       Permissions → Repository → Contents: Read and write   (required by repository_dispatch)
+  2. Store it (gh asks for the value — paste it there, never in chat):
+       gh secret set $SECRET --repo $KIT
+EOF
+        [ -t 0 ] && { read -r -p "Run 'gh secret set $SECRET --repo $KIT' now? [y/N] " a; [ "$a" = y ] && gh secret set "$SECRET" --repo "$KIT"; }
+        ;;
+    add)
+        r="${2:-$(here)}"
+        cur="$(repos)"; case " $cur " in *" $r "*) echo "· $r already registered";; *)
+            gh variable set "$VAR" --repo "$KIT" --body "$(echo "$cur $r" | xargs)" && echo "✓ $r registered with $KIT";; esac
+        # the project's workflow opens PRs with GITHUB_TOKEN — allow that for this repo
+        gh api -X PUT "repos/$r/actions/permissions/workflow" -f default_workflow_permissions=read \
+            -F can_approve_pull_request_reviews=true >/dev/null 2>&1 \
+            && echo "✓ $r: Actions may open PRs" || echo "⚠ $r: enable Settings → Actions → 'Allow GitHub Actions to create … pull requests'"
+        if [ -z "${2:-}" ] && [ ! -f .github/workflows/ai-kit-sync.yml ]; then echo "⚠ run ai-init here first (adds the receiver workflow)"; fi
+        [ -z "${2:-}" ] && ! git ls-files --error-unmatch .github/workflows/ai-kit-sync.yml >/dev/null 2>&1 \
+            && echo "→ commit + push .github/workflows/ai-kit-sync.yml so GitHub can run it"
+        gh secret list --repo "$KIT" 2>/dev/null | grep -q "^$SECRET" || echo "→ token not stored yet: ai-webhooks token"
+        ;;
+    remove)
+        r="${2:-$(here)}"
+        gh variable set "$VAR" --repo "$KIT" --body "$(repos | tr ' ' '\n' | grep -vx "$r" | xargs)" && echo "✓ $r removed"
+        ;;
+    status)
+        echo "kit repo:  $KIT"
+        echo "projects:  $(repos | xargs -n1 2>/dev/null | sed 's/^/           /' | sed '1s/^ *//' || true)"
+        gh secret list --repo "$KIT" 2>/dev/null | grep -q "^$SECRET" && echo "token:     ✓ $SECRET set" || echo "token:     ✗ missing — ai-webhooks token"
+        echo "last dispatches:"; gh run list --repo "$KIT" --workflow notify-projects.yml --limit 3 2>/dev/null | sed 's/^/  /' || echo "  (none yet)"
+        ;;
+    test)
+        gh workflow run notify-projects.yml --repo "$KIT" && echo "✓ fired — watch: gh run list --repo $KIT --workflow notify-projects.yml"
+        ;;
+    -h|--help) sed -n '2,17p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+    *) die "usage: ai-webhooks token|add|remove|status|test" ;;
+esac

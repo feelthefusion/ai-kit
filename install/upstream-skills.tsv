@@ -1,0 +1,31 @@
+# Upstream skills — THE curated set, one manifest for both hosts (parity by construction).
+#   Claude Code: install.sh keeps a shallow git checkout of each repo (pulled on session start by
+#                ai-update → live), and ai-init links each listed skill into the app repo's
+#                .claude/skills/ (git-excluded) → only these skills exist, so nothing duplicates.
+#   Hermes:      hermes.sh installs each row through the skills hub (`hermes skills update` = live).
+# Only named skills, never a whole pack: every row owns one job in the AI brain (skills/ai-kit/SKILL.md).
+# Deliberately NOT installed (they compete with a kit owner):
+#   anthropics/skills claude-api, openai/skills openai-docs, google-gemini gemini-api-dev
+#     → each steers code to ONE vendor SDK; AI Kit has one integration layer (AI SDK + llm-router),
+#       every vendor is a provider row in providers.json, never a second code path.
+#   OpenRouterTeam openrouter-oauth (end-user PKCE keys — the site owns the key), openrouter-stt/tts
+#   huggingface hf-cli / huggingface-papers (generic; ml-lab only needs the four below)
+#   Marketing Kit already owns email/SMS SENDING (resend, react-email, telnyx-messaging) and
+#     site-wide tracking (journey-analytics) → AI Kit hands off, never reinstalls.
+# hosts: both | claude | hermes      trust: community (Hermes scanner decides) | official (vendor org, --force)
+# identifier (owner/repo/path)	hosts	trust	owns (one line — the router's ownership map)
+vercel/ai/skills/use-ai-sdk	both	official	AI SDK v7 API truth (agents, tools, approvals, streaming) — read before writing any AI code
+vercel/ai-elements/skills/ai-elements	both	official	chat UI components (Conversation, Message, PromptInput, Confirmation) for the site-agent widget
+OpenRouterTeam/skills/skills/openrouter-models	both	official	live model catalog: search, compare pricing/context/tool support (llm-router pickers)
+OpenRouterTeam/skills/skills/openrouter-benchmarks	both	official	rank models by benchmark before a challenger enters the eval gate (ai-evolve)
+OpenRouterTeam/skills/skills/openrouter-generations	both	official	per-generation cost/latency/provider lookup — reconcile ai_calls with OpenRouter (ai-analytics)
+OpenRouterTeam/skills/skills/openrouter-analytics	both	official	account-level spend + usage analytics across keys (ai-analytics)
+anthropics/skills/skills/mcp-builder	both	official	building/extending the site-ops MCP server (site-agent mcp.ts)
+huggingface/skills/skills/transformers-js	both	official	on-device models in Node/browser: free local embeddings + classifiers (ml-lab, ai-knowledge)
+huggingface/skills/skills/huggingface-local-models	both	official	run open models locally (Ollama/llama.cpp) → the `ollama` provider row (llm-router)
+huggingface/skills/skills/huggingface-llm-trainer	both	official	fine-tune a small model on the site's own resolved conversations (ml-lab, advanced)
+huggingface/skills/skills/huggingface-datasets	both	official	export/version conversation + outcome datasets for training and evals (ml-lab)
+promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-evals	both	official	eval suites that gate every model/prompt promotion (ai-evolve → ai-eval)
+promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-provider-setup	both	official	point promptfoo at the site's own agent endpoint / router models (ai-eval)
+promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-redteam-setup	both	official	LLM red-team config for the site bot: jailbreak, identity leak, off-topic, tool abuse
+promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-redteam-run	both	official	run + triage the red team (hand-off target for Security Kit red-team on AI surfaces)

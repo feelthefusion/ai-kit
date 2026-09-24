@@ -1,0 +1,36 @@
+{
+  "name": "ai-kit-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Typechecks and exercises the AI Kit reference code against the LATEST published packages (installed fresh by tests/run.sh; nothing pinned).",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "tsx --test *.test.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "latest",
+    "@ai-sdk/openai": "latest",
+    "@ai-sdk/openai-compatible": "latest",
+    "@ai-sdk/provider": "latest",
+    "@ai-sdk/react": "latest",
+    "@fingerprint/agent": "latest",
+    "@fingerprint/node-sdk": "latest",
+    "@fingerprintjs/fingerprintjs": "latest",
+    "@modelcontextprotocol/sdk": "latest",
+    "@openrouter/ai-sdk-provider": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "@types/pg": "latest",
+    "@types/react": "latest",
+    "ai": "latest",
+    "drizzle-orm": "latest",
+    "express": "latest",
+    "react": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "drizzle-kit": "latest"
+  }
+}

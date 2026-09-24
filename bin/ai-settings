@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AI Kit — settings. Switches for the kit's tools + the app's AI env, in one place.
+#
+#   ai-settings                          show everything (secrets as set/unset only)
+#   ai-settings key-mode openrouter|byok|mixed [--railway]
+#        openrouter = ONE OpenRouter key serves every model · byok = each provider's own key
+#        mixed      = native key when present, else OpenRouter (recommended once you add keys)
+#   ai-settings key <ENV_NAME> [--railway]   hidden prompt (or piped stdin) → CLI secrets + repo .env (+ Railway)
+#        e.g. OPENROUTER_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY …
+#        (every provider + env name: ai-models providers)
+#   ai-settings secrets [--railway]      create AI_KEYS_SECRET + AI_APPROVAL_SECRET in the repo .env
+#                                        (never overwrites: rotating AI_KEYS_SECRET orphans stored keys)
+#   ai-settings fingerprint oss|pro      visitor-intel tier (pro needs FP_SECRET_API_KEY + VITE_FP_PUBLIC_KEY)
+#   ai-settings evolve auto|propose|off  ai-evolve: auto-canary + promote · propose only · frozen
+#   ai-settings hf on|off                Hugging Face hosted MCP for Claude Code + Hermes (OAuth on first use)
+#   ai-settings apply [claude|hermes]    re-sync MCP registrations to the switches (installers call this)
+#
+# Tool switches: ~/.config/ai-kit/settings.env · CLI secrets: ~/.config/ai-kit/secrets.env (600)
+# App env: the repo's .env (gitignored) and, with --railway, the linked Railway service.
+# =============================================================================
+set -euo pipefail
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ai-kit"
+SETTINGS="${AI_SETTINGS:-$CONF/settings.env}"; SECRETS="${AI_SECRETS:-$CONF/secrets.env}"
+mkdir -p "$CONF"; touch "$SETTINGS"; [ -f "$SECRETS" ] || : > "$SECRETS"; chmod 600 "$SECRETS"
+HF_MCP_URL="https://huggingface.co/mcp"
+ok()   { printf '  · %s ✓\n' "$*"; }
+warn() { printf '  ⚠ %s\n' "$*"; }
+die()  { echo "✗ $*" >&2; exit 1; }
+
+set_kv() {  # set_kv <file> <KEY> <value>  (replace in place, never duplicate)
+    python3 - "$1" "$2" "$3" <<'PY'
+import os, re, sys
+p, k, v = sys.argv[1:4]
+lines = open(p).read().splitlines() if os.path.exists(p) else []
+out, done = [], False
+for l in lines:
+    if re.match(rf"^\s*(export\s+)?{re.escape(k)}=", l):
+        if not done: out.append(f"{k}={v}"); done = True
+        continue
+    out.append(l)
+if not done: out.append(f"{k}={v}")
+open(p, "w").write("\n".join(out) + "\n")
+PY
+}
+get_kv() { [ -f "$1" ] && grep -E "^(export )?$2=" "$1" | tail -1 | cut -d= -f2- | tr -d '"'"'" || true; }
+setting() { local v="${!1:-}"; [ -n "$v" ] || v="$(get_kv "$SETTINGS" "$1")"; printf '%s' "${v:-$2}"; }
+repo_env() {
+    local root; root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    [ -n "$root" ] || { echo ""; return; }
+    touch "$root/.gitignore"; grep -qxF '.env' "$root/.gitignore" || grep -qxF '.env*' "$root/.gitignore" || printf '\n.env\n' >> "$root/.gitignore"
+    echo "$root/.env"
+}
+railway_set() {  # railway_set KEY  (value via stdin: never typed on a command line, never in shell history)
+    command -v railway >/dev/null 2>&1 || { warn "railway CLI missing — set $1 in the Railway dashboard"; return; }
+    railway status >/dev/null 2>&1 || { warn "repo not linked to Railway (railway link) — set $1 there by hand"; return; }
+    local v; v="$(cat)"
+    railway variables --set "$1=$v" --skip-deploys >/dev/null 2>&1 && ok "Railway: $1 set" || warn "Railway: could not set $1"
+}
+want_railway() { for a in "$@"; do [ "$a" = --railway ] && return 0; done; return 1; }
+
+find_claude() { [ -n "${AI_CLAUDE_BIN:-}" ] && { echo "$AI_CLAUDE_BIN"; return; }; command -v claude 2>/dev/null || true; }
+apply() {  # apply [claude|hermes|all]
+    local host="${1:-all}" hf CL; hf="$(setting AI_HF_MCP off)"; CL="$(find_claude)"
+    if [ "$host" != hermes ] && [ -n "$CL" ]; then
+        "$CL" mcp remove -s user huggingface >/dev/null 2>&1 || true
+        if [ "$hf" = on ]; then "$CL" mcp add -s user --transport http huggingface "$HF_MCP_URL" >/dev/null 2>&1 \
+            && ok "claude: huggingface MCP registered — first use: /mcp → huggingface → Authenticate" || warn "claude: huggingface add failed"
+        else ok "claude: huggingface MCP off"; fi
+    fi
+    if [ "$host" != claude ] && command -v hermes >/dev/null 2>&1; then
+        if [ "$hf" = on ]; then hermes config set mcp_servers.huggingface "{\"url\": \"$HF_MCP_URL\", \"auth\": \"oauth\", \"timeout\": 180}" >/dev/null 2>&1 \
+            && ok "hermes: huggingface MCP registered — sign in once: hermes mcp login huggingface" || warn "hermes: config set failed"
+        else hermes mcp remove huggingface </dev/null >/dev/null 2>&1 || true; ok "hermes: huggingface MCP off"; fi
+    fi
+}
+
+show() {
+    local env km; env="$(repo_env)"; km="$( [ -n "$env" ] && get_kv "$env" AI_KEY_MODE || true)"
+    echo "AI Kit settings"
+    printf '  %-14s %s\n' "key-mode" "${km:-auto (openrouter if OPENROUTER_API_KEY is set, else byok)}" "fingerprint" "$(setting AI_FINGERPRINT oss)" \
+        "evolve" "$(setting AI_EVOLVE auto)" "hf" "$(setting AI_HF_MCP off)"
+    echo "  CLI secrets ($SECRETS):"
+    for k in $(grep -oE '^[A-Z0-9_]+=' "$SECRETS" | tr -d = | sort -u); do printf '    %-34s set\n' "$k"; done
+    [ -n "$env" ] && { echo "  repo .env ($env):"; for k in AI_KEY_MODE AI_KEYS_SECRET AI_APPROVAL_SECRET OPENROUTER_API_KEY; do
+        printf '    %-34s %s\n' "$k" "$( [ -n "$(get_kv "$env" "$k")" ] && echo set || echo unset)"; done; }
+    return 0
+}
+
+cmd="${1:-show}"; shift || true
+case "$cmd" in
+    show) show ;;
+    key-mode)
+        m="${1:-}"; case "$m" in openrouter|byok|mixed) ;; *) die "usage: ai-settings key-mode openrouter|byok|mixed [--railway]" ;; esac
+        env="$(repo_env)"; [ -n "$env" ] || die "run inside the app repo"
+        set_kv "$env" AI_KEY_MODE "$m"; ok "AI_KEY_MODE=$m → $env"
+        want_railway "$@" && printf '%s' "$m" | railway_set AI_KEY_MODE; true ;;
+    key)
+        k="${1:-}"; [[ "$k" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "usage: ai-settings key <ENV_NAME> [--railway]   (names: ai-models providers)"
+        # hidden prompt on a terminal, or piped stdin (op read … | ai-settings key X) — never an argument
+        if [ -t 0 ]; then read -r -s -p "  $k (hidden): " v; echo; else IFS= read -r v || true; fi
+        [ -n "$v" ] || die "empty — nothing changed"
+        set_kv "$SECRETS" "$k" "$v"; chmod 600 "$SECRETS"; ok "$k → $SECRETS (CLIs: ai-models, ai-eval)"
+        env="$(repo_env)"; [ -n "$env" ] && { set_kv "$env" "$k" "$v"; ok "$k → $env"; }
+        want_railway "$@" && printf '%s' "$v" | railway_set "$k"; unset v; true ;;
+    secrets)
+        env="$(repo_env)"; [ -n "$env" ] || die "run inside the app repo"
+        for k in AI_KEYS_SECRET AI_APPROVAL_SECRET; do
+            if [ -n "$(get_kv "$env" "$k")" ]; then ok "$k already set (kept)"; continue; fi
+            v="$(openssl rand -base64 32)"; set_kv "$env" "$k" "$v"; ok "$k created → $env"
+            want_railway "$@" && printf '%s' "$v" | railway_set "$k"
+        done; unset v; true ;;
+    fingerprint)
+        case "${1:-}" in oss|pro) set_kv "$SETTINGS" AI_FINGERPRINT "$1"; ok "fingerprint → $1"
+            env="$(repo_env)"; [ -n "$env" ] && set_kv "$env" AI_FINGERPRINT "$1"
+            [ "$1" = pro ] && echo "    then: ai-settings key FP_SECRET_API_KEY · set VITE_FP_PUBLIC_KEY (public) · optional FP_REGION=eu|ap" ;;
+        *) die "usage: ai-settings fingerprint oss|pro" ;; esac ;;
+    evolve)
+        case "${1:-}" in auto|propose|off) set_kv "$SETTINGS" AI_EVOLVE "$1"; env="$(repo_env)"; [ -n "$env" ] && set_kv "$env" AI_EVOLVE "$1"; ok "evolve → $1" ;;
+        *) die "usage: ai-settings evolve auto|propose|off" ;; esac ;;
+    hf)
+        case "${1:-}" in on|off) set_kv "$SETTINGS" AI_HF_MCP "$1"; ok "hf → $1"; apply all ;;
+        *) die "usage: ai-settings hf on|off" ;; esac ;;
+    apply) apply "${1:-all}" ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) die "unknown '$cmd' — ai-settings --help" ;;
+esac

@@ -1,0 +1,8 @@
+# Hermes skills — installed from the vendor repo via the Hermes skills hub; `hermes skills update`
+# refreshes them every run (live). VENDOR PACKS only (Claude Code gets the same as plugins).
+# Marketing Kit already installs resend / react-email / email-best-practices / telnyx-messaging on
+# Hermes — not repeated here. `official` = the vendor's own org → --force past the API-client heuristics.
+# identifier	kit component	trust
+resend/resend-skills/skills/agent-email-inbox	ai-channels	official
+team-telnyx/ai/providers/claude/plugins/telnyx-ai/skills/telnyx-ai-assistants-javascript	ai-channels	official
+team-telnyx/ai/providers/claude/plugins/telnyx-ai/skills/telnyx-ai-inference-javascript	llm-router	official

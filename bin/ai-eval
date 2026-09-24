@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# =============================================================================
+# AI Kit — evals + red team for the site's AI (run from the app repo).
+#
+#   ai-eval                 the in-app suite: evals/cases.json through the REAL pipeline (guard →
+#                           persona → scrub → agent), actions dry-run → `npm run -s ai:eval`
+#                           (same gate ai-evolve uses before any challenger gets traffic)
+#   ai-eval promptfoo       promptfoo eval of the running bot (evals/promptfooconfig.yaml)
+#   ai-eval redteam         promptfoo red team of the running bot (evals/redteam.yaml)
+#   ai-eval view            promptfoo results UI
+#
+# promptfoo always runs @latest via npx. Env: ~/.config/ai-kit/secrets.env then the repo .env —
+# AI_EVAL_TOKEN (same value as the app's), AI_EVAL_URL (default http://localhost:5000).
+# =============================================================================
+set -euo pipefail
+SECRETS="${AI_SECRETS:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-kit/secrets.env}"
+die() { echo "✗ $*" >&2; exit 1; }
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; cd "$ROOT"
+# shellcheck disable=SC1090
+[ -f "$SECRETS" ] && { set -a; . "$SECRETS"; set +a; }
+# shellcheck disable=SC1091
+[ -f .env ] && { set -a; . ./.env; set +a; }
+pf() { [ -f "evals/$1" ] || die "evals/$1 missing — run ai-init"; [ -n "${AI_EVAL_TOKEN:-}" ] || die "AI_EVAL_TOKEN not set (ai-settings key AI_EVAL_TOKEN — and the same value in the app env)"; }
+case "${1:-suite}" in
+    suite)
+        [ -f evals/cases.json ] || die "evals/cases.json missing — run ai-init"
+        grep -q '"ai:eval"' package.json 2>/dev/null || die "no ai:eval script yet — wire it (skill ai-evolve → eval gate: runEvalSuite over evals/cases.json), then re-run"
+        exec npm run -s ai:eval -- "${@:2}" ;;
+    promptfoo) pf promptfooconfig.yaml; exec npx -y promptfoo@latest eval -c evals/promptfooconfig.yaml "${@:2}" ;;
+    redteam)   pf redteam.yaml; exec npx -y promptfoo@latest redteam run -c evals/redteam.yaml "${@:2}" ;;
+    view)      exec npx -y promptfoo@latest view ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) die "usage: ai-eval [suite|promptfoo|redteam|view]" ;;
+esac

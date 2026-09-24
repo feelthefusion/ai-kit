@@ -1,0 +1,34 @@
+# AI Kit → your project repos. Event-driven: fires on every push to main (no schedule).
+# For each repo in the AI_PROJECT_REPOS variable, sends a `repository_dispatch` webhook; the
+# project's own .github/workflows/ai-kit-sync.yml re-syncs and opens a PR.
+# Setup (once): ai-webhooks token  ·  per project: ai-webhooks add   (no-op until both exist)
+name: notify projects
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    if: ${{ vars.AI_PROJECT_REPOS != '' }}
+    steps:
+      - name: repository_dispatch → each registered project
+        env:
+          GH_TOKEN: ${{ secrets.AI_DISPATCH_TOKEN }}
+          REPOS: ${{ vars.AI_PROJECT_REPOS }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::warning::AI_DISPATCH_TOKEN not set — run: ai-webhooks token"; exit 0; fi
+          fail=0
+          for r in $REPOS; do
+            if gh api "repos/$r/dispatches" -f event_type=ai-kit-updated -f "client_payload[sha]=$SHA" >/dev/null; then
+              echo "→ $r"
+            else
+              echo "::error::dispatch to $r failed (token needs Contents: read & write on it)"; fail=1
+            fi
+          done
+          exit $fail

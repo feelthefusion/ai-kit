@@ -85,18 +85,18 @@ apply_changes() {   # $1 = TSV of changed rows
                 git -C "$KIT_ROOT" pull --ff-only --quiet || { echo "kit: pull failed"; continue; }
                 [ -n "$CLAUDE_BIN" ] && KIT_NO_PULL=1 bash "$KIT_ROOT/install/install.sh" >>"$LOG" 2>&1
                 have_hermes && KIT_NO_PULL=1 bash "$KIT_ROOT/install/hermes.sh" >>"$LOG" 2>&1
-                done_list+=("AI Kit $old→$new (skills, CLIs re-synced)") ;;
+                done_list+=("AI Kit ${old}→$new (skills, CLIs re-synced)") ;;
             upstream)
                 local d="$AI_UPSTREAM/$(printf '%s' "$repo" | tr '/' '_')"
                 if [ -d "$d/.git" ] && git -C "$d" fetch --depth 1 --filter=blob:none --quiet origin HEAD >>"$LOG" 2>&1 && git -C "$d" reset --hard --quiet FETCH_HEAD; then
-                    done_list+=("${repo} skills $old→$new")
+                    done_list+=("${repo} skills ${old}→$new")
                 fi
                 hub=1 ;;
             plugin)
                 if [ -n "$CLAUDE_BIN" ]; then
                     "$CLAUDE_BIN" plugin marketplace update "${name#*@}" >>"$LOG" 2>&1
                     "$CLAUDE_BIN" plugin update "${name#plugin:}" --scope project >>"$LOG" 2>&1 || true
-                    done_list+=("${name#plugin:} plugin $old→$new")
+                    done_list+=("${name#plugin:} plugin ${old}→$new")
                 fi
                 hub=1 ;;
         esac

@@ -25,6 +25,16 @@ echo "▶ scripts parse + every CLI answers --help"
 n=0; for f in "$KIT"/install/*.sh "$KIT"/bin/*; do
     head -1 "$f" | grep -q python && { python3 -m py_compile "$f" 2>/dev/null || bad "py_compile $f"; } || { bash -n "$f" 2>/dev/null || bad "bash -n $f"; }; n=$((n+1)); done
 ok "$n scripts parse (bash -n / py_compile)"
+# bash 3.2 in a UTF-8 locale treats high bytes as name chars: a $var glued to a non-ASCII char is an unbound variable under set -u
+utf_lint() {  # a function, not $(…): bash 3.2 misparses case patterns inside command substitution
+    local f
+    git ls-files | while read -r f; do
+        case "$f" in *.sh) ;; *) head -1 "$f" 2>/dev/null | grep -q bash || continue ;; esac
+        perl -ne 'print "$ARGV:$. " if /(?<!\\)\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7F]/' "$f"
+    done
+}
+utf="$(cd "$(dirname "$0")/.." && utf_lint)"
+[ -z "$utf" ] && ok "no \$var glued to a non-ASCII char (bash 3.2 + UTF-8 locale crash)" || bad "\$var followed by non-ASCII — write \${var}: $utf"
 for b in $KIT_BINS; do "$KIT/bin/$b" --help >/dev/null 2>&1 || bad "$b --help"; done; ok "$(echo $KIT_BINS | wc -w | tr -d ' ') CLIs answer --help"
 
 echo "▶ one AI brain (map ↔ installed skills ↔ sibling kits)"

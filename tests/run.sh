@@ -171,7 +171,10 @@ grep -q "Site-wide events: Marketing Kit journey-analytics" "$R3/.agents/ai-stac
 
 echo "▶ ai-doctor (app checks)"
 D2() { (cd "$R2" && env HOME="$H" XDG_CONFIG_HOME="$H/.config" AI_UPSTREAM="$T/upstream-none" PATH="$KIT/bin:/usr/bin:/bin:$(dirname "$(command -v node)")" bash "$KIT/bin/ai-doctor" 2>&1); }
+mkdir -p "$R2/.claude/worktrees/feat/server"; printf 'new ToolLoopAgent({ experimental_toolApprovalSecret });\napp.use(compression({ filter: (req, res) => !String(res.getHeader("Content-Type")).startsWith("text/event-stream") }));\n' > "$R2/.claude/worktrees/feat/server/agent.ts"
 out="$(D2)"; code=$?
+grep -q "site-agent present" <<<"$out" && bad "credited a worktree's agent to the checkout" || ok "code in .claude/worktrees (other branches) is never credited to this checkout"
+rm -rf "$R2/.claude/worktrees"
 grep -q "✗ compression() filter" <<<"$out" && [ $code != 0 ] && ok "flags the compression pitfall that freezes AI streams (exit $code)" || bad "compression pitfall not flagged ($code)"
 grep -q "AI_APPROVAL_SECRET set" <<<"$out" && grep -q "key mode: mixed" <<<"$out" && ok "reads key mode + secrets from the repo env" || bad "env checks: $(grep -E 'key mode|APPROVAL' <<<"$out")"
 echo 'app.use(compression({ filter: (req, res) => !String(res.getHeader("Content-Type") || "").startsWith("text/event-stream") && compression.filter(req, res) }));' > "$R2/server/index.ts"

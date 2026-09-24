@@ -34,7 +34,7 @@ ai-doctor                       # everything wired → GREEN
 CLIs: `ai-init` · `ai-doctor` · `ai-settings` · `ai-models` · `ai-report` · `ai-eval` · `ai-mcp` · `ai-update` · `ai-webhooks`.
 
 ### Curated upstream skills (fetched live)
-`use-ai-sdk` · `ai-elements` (Vercel) · `openrouter-models` · `openrouter-benchmarks` · `openrouter-generations` · `openrouter-analytics` (OpenRouter) · `mcp-builder` (Anthropic) · `transformers-js` · `huggingface-local-models` · `huggingface-llm-trainer` · `huggingface-datasets` (Hugging Face) · `promptfoo-evals` · `promptfoo-provider-setup` · `promptfoo-redteam-setup` · `promptfoo-redteam-run` (promptfoo). Vendor packs: Resend (`agent-email-inbox` …), Telnyx AI (`telnyx-ai-assistants-javascript`, `telnyx-ai-inference-javascript` …).
+`use-ai-sdk` · `ai-elements` (Vercel) · `openrouter-models` · `openrouter-benchmarks` · `openrouter-generations` · `openrouter-analytics` (OpenRouter) · `mcp-builder` (Anthropic) · `transformers-js` · `huggingface-local-models` · `huggingface-llm-trainer` · `huggingface-datasets` (Hugging Face) · `promptfoo-evals` · `promptfoo-provider-setup` · `promptfoo-redteam-setup` · `promptfoo-redteam-run` (promptfoo). Vendor packs: Resend (`agent-email-inbox` … — Claude Code; Hermes' scanner blocks it, `ai-channels` covers it there), Telnyx AI (`telnyx-ai-assistants-javascript`, `telnyx-ai-inference-javascript` …).
 Deliberately **not** installed: vendor-SDK skills (`claude-api`, `openai-docs`, `gemini-api-dev`) — the AI SDK behind llm-router is the one integration layer.
 
 ## How it fits with your other kits

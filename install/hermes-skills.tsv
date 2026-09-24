@@ -3,6 +3,7 @@
 # Marketing Kit already installs resend / react-email / email-best-practices / telnyx-messaging on
 # Hermes — not repeated here. `official` = the vendor's own org → --force past the API-client heuristics.
 # identifier	kit component	trust
-resend/resend-skills/skills/agent-email-inbox	ai-channels	official
 team-telnyx/ai/providers/claude/plugins/telnyx-ai/skills/telnyx-ai-assistants-javascript	ai-channels	official
 team-telnyx/ai/providers/claude/plugins/telnyx-ai/skills/telnyx-ai-inference-javascript	llm-router	official
+# Not on Hermes: resend agent-email-inbox — Hermes' scanner rates it dangerous (curl|sh, tunnel setup) and has no
+# override for that verdict. Claude Code gets it via the resend plugin; on Hermes, ai-channels covers the inbound email bot.

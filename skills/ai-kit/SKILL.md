@@ -24,7 +24,7 @@ into the app, don't re-invent it.
 | AI SDK code (agents, tools, streaming, UI) | `use-ai-sdk`, `ai-elements` | `site-agent` | `ai-eval` |
 | Chat bot + admin copilot + safe site control (actions, approvals) | `use-ai-sdk` | `site-agent` | `ai-analytics` |
 | Identity lock + site-only scope | — | `site-agent` (guard) | `ai-evolve` (eval gate), `promptfoo-redteam-run` |
-| Email bot / SMS bot | `agent-email-inbox`, `telnyx-ai-assistants-javascript` | `ai-channels` (sends via Marketing Kit `lifecycle-engine` when present) | `ai-analytics` |
+| Email bot / SMS bot | `agent-email-inbox` (Claude Code), `telnyx-ai-assistants-javascript` | `ai-channels` (sends via Marketing Kit `lifecycle-engine` when present) | `ai-analytics` |
 | What the bots know (RAG) | `transformers-js` (free local embeddings) | `ai-knowledge` | `ai-analytics` (answer rate) |
 | Visitor + customer identification, live presence, intent | — | `visitor-intel` | `ml-lab` (intent model) |
 | Realtime: SSE, outbound + inbound webhooks, multi-instance fan-out | — | `live-bus` | — |

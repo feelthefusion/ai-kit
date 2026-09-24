@@ -154,8 +154,27 @@ else: print("present")
 PY
 }
 
+# Hermes registers a shell hook only once it is on the consent allowlist, and it asks for that
+# consent on a TTY only — desktop, gateway and cron sessions never ask, so an unapproved hook is
+# silently skipped (no auto-update). Installing the kit IS the consent for the kit's own hook:
+# record exactly this command via Hermes' own allowlist API. Undo: `hermes hooks revoke <command>`.
+approve_hermes_hook() {  # approve_hermes_hook <event> <command>
+    local py="$HOME/.hermes/hermes-agent/venv/bin/python"
+    [ -x "$py" ] || py="$HOME/.hermes/hermes-agent/.venv/bin/python"
+    [ -x "$py" ] || return 1
+    (cd "$HOME/.hermes/hermes-agent" && "$py" - "$1" "$2" >/dev/null 2>&1 <<'PY'
+import sys
+from agent.shell_hooks import _is_allowlisted, _record_approval
+event, command = sys.argv[1], sys.argv[2]
+if not _is_allowlisted(event, command):
+    _record_approval(event, command)
+PY
+    )
+}
+
 wire_hermes_update_hook() {
     local cur merged
+    approve_hermes_hook on_session_start "$AI_BIN/ai-update --hook" || echo "  ⚠ could not record Hermes hook consent — approve it once in a terminal Hermes session" >&2
     cur="$(hermes config get --json hooks.on_session_start 2>/dev/null || echo null)"
     case "$cur" in *ai-update*) echo present; return ;; esac
     merged="$(python3 -c '

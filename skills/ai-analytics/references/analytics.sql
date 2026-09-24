@@ -65,6 +65,16 @@ FROM r LEFT JOIN c ON c.automation_run_id = r.id GROUP BY 1 ORDER BY runs DESC;
 SELECT finish_reason AS verdict, count(*) FROM ai_calls
 WHERE task = 'guard' AND created_at >= :from AND created_at < :to GROUP BY 1;
 
+-- name: decisions  (typed decisions — Jev or an LLM adapter: volume, fallback rate, latency, cost per purpose)
+SELECT purpose, ref, count(*) AS calls,
+       round(avg((finish_reason = 'fallback')::int)::numeric, 3) AS fallback_rate,
+       round(avg((error IS NOT NULL)::int)::numeric, 3) AS error_rate,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50_ms,
+       percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_ms,
+       round(coalesce(sum(cost_micros), 0) / 1e6, 6) AS usd
+FROM ai_calls WHERE purpose IS NOT NULL AND created_at >= :from AND created_at < :to
+GROUP BY 1, 2 ORDER BY calls DESC;
+
 -- name: anomalies  (hour buckets where spend > 3× the trailing 7-day hourly mean — ml-lab alerts on this)
 WITH h AS (SELECT date_trunc('hour', created_at) AS hr, sum(cost_micros) AS c FROM ai_calls WHERE created_at > now() - interval '8 days' GROUP BY 1)
 SELECT hr, c / 1e6 AS usd, avg(c) OVER (ORDER BY hr ROWS BETWEEN 168 PRECEDING AND 1 PRECEDING) / 1e6 AS trailing_mean_usd

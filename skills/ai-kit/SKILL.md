@@ -1,6 +1,6 @@
 ---
 name: ai-kit
-description: "Use for ANY AI feature on a site or app — AI chat bot / help bot, email bot, SMS bot, admin copilot, AI automations that update site/admin/customer data, LLM selection (OpenRouter key or per-provider keys), model routing + fallbacks, RAG over site content, visitor identification (FingerprintJS), live features over SSE + webhooks, AI tracking + analytics (tokens, cost, resolution, AI-attributed revenue), evals / red team of the bot, self-improving models + prompts, and machine learning on the site's own data — and when installing or updating the AI Kit. The map: which component owns each job and how they hand off so nothing competes."
+description: "Use for ANY AI feature on a site or app — AI chat bot / help bot, email bot, SMS bot, admin copilot, AI automations that update site/admin/customer data, LLM selection (OpenRouter key or per-provider keys), model routing + fallbacks, typed decisions (Jev / TypeSafe: yes-no, pick-one, score with probabilities), RAG over site content, visitor identification (FingerprintJS), live features over SSE + webhooks, AI tracking + analytics (tokens, cost, resolution, AI-attributed revenue), evals / red team of the bot, self-improving models + prompts, and machine learning on the site's own data — and when installing or updating the AI Kit. The map: which component owns each job and how they hand off so nothing competes."
 ---
 
 # AI Kit (recall + ownership map)
@@ -21,6 +21,7 @@ into the app, don't re-invent it.
 | Job | Think (guidance) | Do (owner in the app) | Measure |
 |---|---|---|---|
 | Models, keys, routing, fallbacks, admin AI console | `openrouter-models`, `openrouter-benchmarks`, `huggingface-local-models` | `llm-router` | `ai-analytics` |
+| Typed decisions — guard stage 2, inbound triage, conversation labels, rerank, automation gates, eval rubrics | `typesafe-ai` | `llm-router` (decide.ts, task "decide") | `ai-analytics` (decisions query), `ai-evolve` (decision suite) |
 | AI SDK code (agents, tools, streaming, UI) | `use-ai-sdk`, `ai-elements` | `site-agent` | `ai-eval` |
 | Chat bot + admin copilot + safe site control (actions, approvals) | `use-ai-sdk` | `site-agent` | `ai-analytics` |
 | Identity lock + site-only scope | — | `site-agent` (guard) | `ai-evolve` (eval gate), `promptfoo-redteam-run` |
@@ -42,19 +43,22 @@ ai-knowledge ──site facts──────────────┐ │
                                        ▼ ▼
 channel (web · email · sms · mcp · automation) → site-agent.prepareTurn
    guard.preflight ─(identity/injection/off-topic → canned, no model call)
+   guard.classifyTyped ─ decide(Jev, ~100 ms) → blocks only when confident (else classifyTurn on `guard`)
    llm-router.model(task)  → persona + identityScrub (customer-facing)
    ToolLoopAgent(actions → buildTools, signed approvals) → SiteServices (the app's own functions)
         │ onTurnEnd → ai-analytics.recordTurn ─→ ai_calls ─→ (journey-analytics crm_events)
         │ hooks.record/publish → ai_actions + live-bus
         ▼
 live-bus.publish ─→ SSE (admin live console, customer toasts) ─→ webhooks out (n8n, other sites)
-ai-evolve: catalog → challengers → eval gate → canary → decide(z-test, cost/win) → promote/retire
+ai-evolve: catalog → challengers → eval gate → canary → judgeVariants(z-test, cost/win) → promote/retire
 ml-lab: labels conversations, trains intent model, recs, spend anomalies → feeds the others
+llm-router.decide (one typed call): ai-channels triage · ai-knowledge rerank · ai-automations gate · ml-lab labels · eval rubrics
+     └─ onCall → ai-analytics.recordDecision → ai_calls (purpose set; never counted as a turn)
 ```
 
 ## Conflict rules
 - **One writer per table** (ai-schema.ts header lists owners). Need another owner's data? Call its function or subscribe to its bus topic — never write its table.
-- **One model entry point**: nothing calls a provider SDK directly — `llm-router.model(task)` only. Vendor SDK skills are deliberately not installed.
+- **One model entry point**: nothing calls a provider SDK directly — `llm-router.model(task)` for text, `decide(router, …)` (→ `router.evaluation("decide")`) for typed decisions. Vendor SDK skills are deliberately not installed.
 - **One sender**: with Marketing Kit, email/SMS go through `lifecycle-engine`; ai-channels only decides WHAT to reply.
 - **One tracker**: with Marketing Kit, site-wide events stay in `journey-analytics` (crm_events); ai-analytics forwards `ai.*` events there and owns only AI-specific numbers.
 - **One experiment engine**: with Marketing Kit's `growth-optimizer`, register model/prompt variants as its arms instead of running a second bandit.
@@ -71,7 +75,7 @@ ml-lab: labels conversations, trains intent model, recs, spend anomalies → fee
 curl -fsSL https://raw.githubusercontent.com/feelthefusion/ai-kit/main/install/bootstrap.sh | bash
 cd <app repo> && ai-init && ai-doctor
 ```
-Keys: `ai-settings key OPENROUTER_API_KEY` (one key, every model) or per provider (`ai-models providers` lists env names) · `ai-settings key-mode openrouter|byok|mixed` · `ai-settings secrets`.
+Keys: `ai-settings key OPENROUTER_API_KEY` (one key, every model — Jev included, via OpenRouter's Decisions API) · Jev direct (≈2× faster): `ai-settings key TYPESAFE_AI_API_KEY` or per provider (`ai-models providers` lists env names) · `ai-settings key-mode openrouter|byok|mixed` · `ai-settings secrets`.
 
 ## Works with →
 - **Marketing Kit**: `journey-analytics` (site tracking), `lifecycle-engine` (sending), `growth-optimizer` (experiments), `growth-data` (segments the automations can act on).

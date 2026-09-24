@@ -143,6 +143,7 @@ export const aiCalls = pgTable("ai_calls", {
   id: uuid("id").primaryKey().defaultRandom(),
   callId: text("call_id"),
   task: text("task").notNull(),
+  purpose: text("purpose"),                             // typed decisions only: guard | triage | label | rerank | gate | eval
   ref: text("ref").notNull(),
   provider: text("provider").notNull(),
   modelId: text("model_id").notNull(),

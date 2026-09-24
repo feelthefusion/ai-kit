@@ -7,7 +7,8 @@
 import { ToolLoopAgent, isStepCount, wrapLanguageModel, type LanguageModel, type ModelMessage } from "ai";
 import type { LlmRouter, ModelRef, Task } from "../../llm-router/references/providers";
 import { buildTools, type ActionDef, type ActionHooks, type Actor, type Channel } from "./actions";
-import { cannedReply, classifyTurn, identityScrub, personaInstructions, preflight, type Persona, type Verdict } from "./guard";
+import { cannedReply, classifyTurn, classifyTyped, identityScrub, personaInstructions, preflight, type Persona, type Verdict } from "./guard";
+import type { DecisionTelemetry } from "../../llm-router/references/decide";
 
 export interface AgentDeps {
   router: LlmRouter;
@@ -16,7 +17,8 @@ export interface AgentDeps {
   persona: Persona;
   /** AI_APPROVAL_SECRET (32+ random bytes). Signs every confirm card; forged approvals fail closed. */
   approvalSecret: string;
-  /** Stage-2 guard on the cheap `guard` model for turns the regex preflight passes. */
+  /** Stage-2 guard for turns the regex preflight passes: a typed "decide" call when that task is
+   *  configured (Jev), else the cheap `guard` text model. */
   guardModel?: boolean;
   /** ai-knowledge: retrieved passages for this question, already audience-filtered. */
   knowledge?: (query: string, audience: "public" | "customer" | "staff") => Promise<string>;
@@ -26,6 +28,8 @@ export interface AgentDeps {
   visitorContext?: (visitorId: string) => Promise<string>;
   /** ai-analytics: one call per turn with usage/cost/latency. */
   onTurnEnd?: (e: TurnTelemetry) => void | Promise<void>;
+  /** Every typed decision (guard, triage, labels, rerank, gates) — wire ai-analytics recordDecision(db). */
+  onDecision?: (e: DecisionTelemetry) => void | Promise<void>;
   /** Max tool-loop steps per turn. */
   maxSteps?: number;
   /** ai-evolve: sticky per-conversation model variant (canary traffic). undefined → the task's champion. */
@@ -72,7 +76,12 @@ export async function prepareTurn(deps: AgentDeps, turn: Turn): Promise<Prepared
   if (facing) {
     verdict = preflight(turn.text);
     if (verdict === "ok" && deps.guardModel) {
-      try { verdict = await classifyTurn(await deps.router.model("guard"), turn.text, deps.persona); } catch { verdict = "ok"; }
+      const visitorId = "visitorId" in turn.actor ? turn.actor.visitorId : undefined;
+      try {
+        verdict = (await deps.router.has("decide"))
+          ? await classifyTyped(deps.router, turn.text, deps.persona, { onCall: deps.onDecision, conversationId: turn.conversationId, channel: turn.channel, visitorId })
+          : await classifyTurn(await deps.router.model("guard"), turn.text, deps.persona);
+      } catch { verdict = "ok"; }
     }
     if (verdict !== "ok") {
       // stopped before the model: still counted (ai-analytics `guard` query), zero cost, no model named

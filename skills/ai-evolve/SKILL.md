@@ -5,15 +5,15 @@ description: "Use when keeping the site's AI current and improving on its own: t
 
 # AI Evolve (living models + prompts, gated by evidence)
 
-Files: `references/evolve.ts` (catalog → challengers → canary → decide) · `references/eval-gate.ts`
-(the gate) · repo `evals/` (seeded by ai-init: `cases.json`, `promptfooconfig.yaml`, `redteam.yaml`).
+Files: `references/evolve.ts` (catalog → challengers → canary → judgeVariants) · `references/eval-gate.ts`
+(the gate + decision suite) · repo `evals/` (seeded by ai-init: `cases.json`, `decisions.json`, `promptfooconfig.yaml`, `redteam.yaml`).
 
 ## The loop (`ai-settings evolve auto|propose|off`, default auto)
 1. **Catalog** (daily `cron.daily` event): `fetchOpenRouterCatalog()` → `refreshCatalog(db, models)` upserts ai_models (context, tools support, price in micros/Mtok), marks missing ones retired, publishes `ai.models { added, retired }`. A retired champion → the router's fallback chain serves at once; a new champion is chosen by step 5.
 2. **Propose**: `proposeChallengers(db, task, championRef, candidates)` — fit per task (`TASK_FIT`: tools needed, min context, price ceiling vs champion) → challengers at 0% traffic. Rank candidates with `openrouter-benchmarks` / `openrouter-models` first.
-3. **Gate**: `evalGate(db, deps, candidateModel, cases)` — the REAL pipeline (`prepareTurn`: guard → persona → scrub → agent) with actions dry-run. A case fails on: wrong/missing tool, a write executed, a missing required phrase, any vendor-name leak (`VENDOR_PATTERN`). Pass ≥ AI_EVAL_MIN (0.9) and ≥ champion's score → eligible for traffic. Recorded in ai_eval_runs.
+3. **Gate**: `evalGate(db, deps, candidateModel, cases)` — the REAL pipeline (`prepareTurn`: guard → persona → scrub → agent) with actions dry-run. A case fails on: wrong/missing tool, a write executed, a missing required phrase, any vendor-name leak (`VENDOR_PATTERN`), or a `rubric` yes/no ("Does the reply offer a next step?") judged below 0.5 by the `decide` model (skipped + noted without one). Pass ≥ AI_EVAL_MIN (0.9) and ≥ champion's score → eligible for traffic. Recorded in ai_eval_runs.
 4. **Canary**: challenger `trafficBp` = AI_EVOLVE_CANARY_BP (1000 = 10%). site-agent's `variant` dep = `variantPicker(db)` → sticky per conversation (`bucket` = hash(task, subject)); the challenger is served with the champion behind it as fallback; `variantId` lands on every ai_calls row.
-5. **Decide** (daily): `scoreVariants(db, task)` (win = resolved_by_ai | action_done without a 👎; cost per win) → `decide(champ, challengers)` — promote only with n ≥ 200 conversations, two-proportion z-test p < 0.05, and cost per win ≤ 1.25× champion; retire clear losers → `applyDecision` (publishes `ai.settings` → every router invalidates).
+5. **Decide** (daily): `scoreVariants(db, task)` (win = resolved_by_ai | action_done without a 👎; cost per win) → `judgeVariants(champ, challengers)` — promote only with n ≥ 200 conversations, two-proportion z-test p < 0.05, and cost per win ≤ 1.25× champion; retire clear losers → `applyDecision` (publishes `ai.settings` → every router invalidates).
 `propose` mode stops before 5's promotion and shows a Promote button in the admin console.
 
 ## Prompts evolve the same way
@@ -22,6 +22,7 @@ A prompt change (persona wording, instructions) is a variant with the same `ref`
 with the `summarize` task → propose one prompt diff as a challenger. Never hand-edit prompts in prod.
 
 ## Evals + red team (developer side)
+- **Decision suite** (`evals/decisions.json`): labelled typed decisions — `preset: "guard" | "triage"` runs the exact production questions, or inline `questions`; `expect` = choice / yes-no / score level. `promoteDecider(db, router, cases, { persona })` scores the `decide` champion + challengers (catalog: decision-modality models only, never `~…-latest` aliases) and promotes the best — higher accuracy, or equal at ≤ 0.8× p50 latency — so a new Jev version goes live only after matching the site's ground truth. The catalog sync reads `?output_modalities=all` (the default list hides decision models).
 - `ai-eval` — the in-app suite (`npm run ai:eval` → `runEvalSuite` over evals/cases.json). Every bug found in prod becomes a row.
 - `ai-eval promptfoo` / `ai-eval redteam` — promptfoo @latest against `POST /api/v1/ai/eval` (bearer AI_EVAL_TOKEN): identity probes, prompt extraction, hijacking, off-topic, excessive agency, RBAC/BOLA. Setup help: `promptfoo-evals`, `promptfoo-provider-setup`, `promptfoo-redteam-setup`, `promptfoo-redteam-run`.
 - Findings: fix in guard / actions → add the case → Security Kit `harden-stack` for anything beyond the AI layer.

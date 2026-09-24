@@ -9,7 +9,7 @@ File: `references/knowledge.ts` · table `ai_knowledge` (pgvector, one writer: t
 
 ## Flow
 1. **Ingest** `ingest(db, router, docs)` — `Doc = { source, sourceId, title, body, url, audience }`. Chunks (~800 chars, sentence-aware), `content_hash` per chunk → unchanged chunks are never re-embedded; stale chunks of the same source id are removed.
-2. **Search** `search(db, router, query, audience, k)` — vector (cosine) + Postgres full-text, merged with reciprocal rank fusion. `audience` filters: a customer never retrieves a `staff` runbook.
+2. **Search** `search(db, router, query, audience, k)` — vector (cosine) + Postgres full-text, merged with reciprocal rank fusion. `audience` filters: a customer never retrieves a `staff` runbook. With a `decide` task, `rerank()` scores 3×k fused candidates in ONE typed call ("does passage i help answer the question?") and keeps the best k — sharper context for pennies; failure keeps fusion order. `AI_RERANK=off` skips it.
 3. **Agent** `knowledgeFor(db, router)` → site-agent's `knowledge(query, audience)` dep: top hits as a short cited block in the instructions.
 
 ## Setup

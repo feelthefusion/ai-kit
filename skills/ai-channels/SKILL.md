@@ -10,6 +10,7 @@ File: `references/channels.ts` → `handleInbound(deps, message)`.
 ## Flow
 1. **Inbound** arrives on live-bus `event` (`email.received` / `sms.received`) — from Marketing Kit's inbound webhooks when installed (Resend inbound, Telnyx messaging), else the app's own receivers (`agent-email-inbox`, `telnyx-messaging-javascript`).
 2. **Filter**: auto-replies / bounces (`no-reply`, `mailer-daemon`, `Auto-Submitted`) ignored; > N bot replies/hour in one thread → stop (mail-loop brake).
+2b. **Triage** (with a `decide` task): one typed decision on the new message — `needs_reply` · `wants_human` · `urgency` (`TRIAGE`). P(needs_reply) < 0.15 → dropped as "not a person" (receipts, newsletters, OOO that slipped past headers) before any agent turn; otherwise answered as usual and `onTriage(conversationId, { needsReply, wantsHuman, urgency })` feeds the priority inbox / staff ping. Best-effort: a failed triage just answers.
 3. **Identity**: `customerFor(channel, address)` only when `verified` (email DKIM/SPF pass; SMS carrier-delivered number). Unverified → guest actor: public help + "sign in to change your account".
 4. **Thread**: `threadKey` = email root Message-ID (References/In-Reply-To) or `sms:<from>:<to>` → one ai_conversations row; history loaded, quoted text stripped.
 5. **Turn**: `runTurn` (site-agent) with channel `email`/`sms` → task `channel_reply`, persona + scrub on.

@@ -62,7 +62,7 @@ env = {}
 for f in (".env", ".env.local"):
     try: env.update(dict(re.findall(r'^\s*(?:export\s+)?([A-Z0-9_]+)=["\']?([^"\'\n]*)', open(os.path.join(root, f)).read(), re.M)))
     except Exception: pass
-env.update({k: v for k, v in os.environ.items() if k.startswith(("AI_", "OPENROUTER_"))})
+env.update({k: v for k, v in os.environ.items() if k.startswith(("AI_", "OPENROUTER_", "TYPESAFE_"))})
 mode = env.get("AI_KEY_MODE") or ("openrouter" if env.get("OPENROUTER_API_KEY") else "byok")
 P(f"key mode: {mode}{' (implicit)' if not env.get('AI_KEY_MODE') else ''}")
 if mode in ("openrouter", "mixed") and not env.get("OPENROUTER_API_KEY"): W("OPENROUTER_API_KEY not in local env (fine if it's only on Railway / in the admin console)")
@@ -87,6 +87,18 @@ if re.search(r"ToolLoopAgent", src):
     if not re.search(r"identityScrub|sendReasoning:\s*false", src): W("no identity scrub / sendReasoning:false found — customer bots could name the model")
 fp = [n for n in ("@fingerprintjs/fingerprintjs", "@fingerprint/agent") if n in deps]
 (P if fp else W)(f"visitor id: {', '.join(fp)}" if fp else "no FingerprintJS dep — visitor-intel (npm i @fingerprintjs/fingerprintjs@latest)")
+# typed decisions (llm-router decide): configured? pinned? package present for a native TypeSafe key?
+m = re.search(r"\bdecide\s*:\s*\{\s*model\s*:\s*[\"'`]([^\"'`]+)", src)
+if m:
+    ref = m.group(1); P(f"typed decisions: decide → {ref}")
+    if ref.endswith("-latest"): W(f"{ref} floats — pin a Jev version (e.g. typesafe-ai:jev-1.13.0); ai-evolve promotes newer ones after evals/decisions.json")
+    ts_key = env.get("TYPESAFE_AI_API_KEY") or env.get("TYPESAFE_API_KEY")
+    if "typesafe-ai:" in src and ts_key and mode != "openrouter" and "@ai-sdk/typesafe-ai" not in deps:
+        W("TypeSafe key set but @ai-sdk/typesafe-ai not installed — decide falls to its fallbacks (npm i @ai-sdk/typesafe-ai@latest)")
+    dj = os.path.join(root, "evals", "decisions.json")
+    if os.path.exists(dj): P(f"decision suite: {len(json.load(open(dj)))} cases")
+    else: W("no evals/decisions.json — ai-init (a new Jev version is promoted only after it passes)")
+else: P("typed decisions: off (no decide task) — guard / triage / labels use text models")
 if os.path.exists(os.path.join(root, "evals", "cases.json")): P(f"eval suite: {len(json.load(open(os.path.join(root, 'evals', 'cases.json'))))} cases")
 else: W("no evals/cases.json — ai-init")
 PY

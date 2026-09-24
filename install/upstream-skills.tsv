@@ -29,3 +29,4 @@ promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-evals	both	official	eval 
 promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-provider-setup	both	official	point promptfoo at the site's own agent endpoint / router models (ai-eval)
 promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-redteam-setup	both	official	LLM red-team config for the site bot: jailbreak, identity leak, off-topic, tool abuse
 promptfoo/promptfoo/plugins/promptfoo/skills/promptfoo-redteam-run	both	official	run + triage the red team (hand-off target for Security Kit red-team on AI surfaces)
+typesafe-ai/skills/skills/typesafe-ai	both	official	Jev typed decisions (choice / score / boolean, confidence, cookbooks) from the live TypeSafe docs — read before writing decide() questions

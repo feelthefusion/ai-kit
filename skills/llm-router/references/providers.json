@@ -1,27 +1,279 @@
 {
   "_comment": "THE provider catalog — one file read by the app (providers.ts imports it) AND by the ai-models / ai-doctor CLIs. Add a provider here and both sides get it. pkg + factory are the AI SDK v7 names (verified against the installed packages). models = live list endpoint (null = no list API; type ids yourself). auth: bearer | x-api-key | query-key | none.",
   "providers": [
-    { "id": "openrouter", "name": "OpenRouter (one key → every model)", "env": ["OPENROUTER_API_KEY"], "pkg": "@openrouter/ai-sdk-provider", "factory": "createOpenRouter", "models": "https://openrouter.ai/api/v1/models", "auth": "none", "embeddings": "https://openrouter.ai/api/v1/embeddings/models", "gateway": true },
-    { "id": "gateway", "name": "Vercel AI Gateway (one key → every model)", "env": ["AI_GATEWAY_API_KEY"], "pkg": "@ai-sdk/gateway", "factory": "createGateway", "models": "https://ai-gateway.vercel.sh/v1/models", "auth": "none", "gateway": true },
-    { "id": "openai", "name": "OpenAI", "env": ["OPENAI_API_KEY"], "pkg": "@ai-sdk/openai", "factory": "createOpenAI", "models": "https://api.openai.com/v1/models", "auth": "bearer" },
-    { "id": "anthropic", "name": "Anthropic", "env": ["ANTHROPIC_API_KEY"], "pkg": "@ai-sdk/anthropic", "factory": "createAnthropic", "models": "https://api.anthropic.com/v1/models", "auth": "x-api-key" },
-    { "id": "google", "name": "Google Gemini", "env": ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"], "pkg": "@ai-sdk/google", "factory": "createGoogle", "models": "https://generativelanguage.googleapis.com/v1beta/models", "auth": "query-key" },
-    { "id": "xai", "name": "xAI Grok", "env": ["XAI_API_KEY"], "pkg": "@ai-sdk/xai", "factory": "createXai", "models": "https://api.x.ai/v1/models", "auth": "bearer" },
-    { "id": "mistral", "name": "Mistral", "env": ["MISTRAL_API_KEY"], "pkg": "@ai-sdk/mistral", "factory": "createMistral", "models": "https://api.mistral.ai/v1/models", "auth": "bearer" },
-    { "id": "groq", "name": "Groq", "env": ["GROQ_API_KEY"], "pkg": "@ai-sdk/groq", "factory": "createGroq", "models": "https://api.groq.com/openai/v1/models", "auth": "bearer" },
-    { "id": "deepseek", "name": "DeepSeek", "env": ["DEEPSEEK_API_KEY"], "pkg": "@ai-sdk/deepseek", "factory": "createDeepSeek", "models": "https://api.deepseek.com/models", "auth": "bearer" },
-    { "id": "togetherai", "name": "Together AI", "env": ["TOGETHER_API_KEY"], "pkg": "@ai-sdk/togetherai", "factory": "createTogetherAI", "models": "https://api.together.xyz/v1/models", "auth": "bearer" },
-    { "id": "fireworks", "name": "Fireworks", "env": ["FIREWORKS_API_KEY"], "pkg": "@ai-sdk/fireworks", "factory": "createFireworks", "models": "https://api.fireworks.ai/inference/v1/models", "auth": "bearer" },
-    { "id": "cohere", "name": "Cohere", "env": ["COHERE_API_KEY"], "pkg": "@ai-sdk/cohere", "factory": "createCohere", "models": "https://api.cohere.com/v1/models", "auth": "bearer" },
-    { "id": "perplexity", "name": "Perplexity", "env": ["PERPLEXITY_API_KEY"], "pkg": "@ai-sdk/perplexity", "factory": "createPerplexity", "models": null, "auth": "bearer" },
-    { "id": "cerebras", "name": "Cerebras", "env": ["CEREBRAS_API_KEY"], "pkg": "@ai-sdk/cerebras", "factory": "createCerebras", "models": "https://api.cerebras.ai/v1/models", "auth": "bearer" },
-    { "id": "telnyx", "name": "Telnyx Inference (same account as SMS)", "env": ["TELNYX_API_KEY"], "pkg": "@ai-sdk/openai-compatible", "factory": "createOpenAICompatible", "baseURL": "https://api.telnyx.com/v2/ai", "models": "https://api.telnyx.com/v2/ai/models", "auth": "bearer" },
-    { "id": "huggingface", "name": "Hugging Face Inference Providers", "env": ["HF_TOKEN"], "pkg": "@ai-sdk/openai-compatible", "factory": "createOpenAICompatible", "baseURL": "https://router.huggingface.co/v1", "models": "https://router.huggingface.co/v1/models", "auth": "bearer" },
-    { "id": "ollama", "name": "Ollama / llama.cpp / LM Studio (local, no key)", "env": ["OLLAMA_BASE_URL"], "pkg": "@ai-sdk/openai-compatible", "factory": "createOpenAICompatible", "baseURL": "http://localhost:11434/v1", "baseURLEnv": "OLLAMA_BASE_URL", "models": "{baseURL}/models", "auth": "none", "keyless": true },
-    { "id": "azure", "name": "Azure OpenAI", "env": ["AZURE_API_KEY", "AZURE_RESOURCE_NAME"], "pkg": "@ai-sdk/azure", "factory": "createAzure", "models": null, "auth": "bearer" },
-    { "id": "bedrock", "name": "Amazon Bedrock", "env": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"], "pkg": "@ai-sdk/amazon-bedrock", "factory": "createAmazonBedrock", "models": null, "auth": "none" },
-    { "id": "vertex", "name": "Google Vertex AI", "env": ["GOOGLE_VERTEX_PROJECT", "GOOGLE_VERTEX_LOCATION"], "pkg": "@ai-sdk/google-vertex", "factory": "createVertex", "models": null, "auth": "none" },
-    { "id": "custom", "name": "Any OpenAI-compatible endpoint", "env": ["AI_CUSTOM_API_KEY", "AI_CUSTOM_BASE_URL"], "pkg": "@ai-sdk/openai-compatible", "factory": "createOpenAICompatible", "baseURLEnv": "AI_CUSTOM_BASE_URL", "models": "{baseURL}/models", "auth": "bearer" }
+    {
+      "id": "openrouter",
+      "name": "OpenRouter (one key → every model)",
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
+      "pkg": "@openrouter/ai-sdk-provider",
+      "factory": "createOpenRouter",
+      "models": "https://openrouter.ai/api/v1/models",
+      "auth": "none",
+      "embeddings": "https://openrouter.ai/api/v1/embeddings/models",
+      "gateway": true,
+      "evaluation": true
+    },
+    {
+      "id": "gateway",
+      "name": "Vercel AI Gateway (one key → every model)",
+      "env": [
+        "AI_GATEWAY_API_KEY"
+      ],
+      "pkg": "@ai-sdk/gateway",
+      "factory": "createGateway",
+      "models": "https://ai-gateway.vercel.sh/v1/models",
+      "auth": "none",
+      "gateway": true,
+      "evaluation": true
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "env": [
+        "OPENAI_API_KEY"
+      ],
+      "pkg": "@ai-sdk/openai",
+      "factory": "createOpenAI",
+      "models": "https://api.openai.com/v1/models",
+      "auth": "bearer",
+      "evaluation": true
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "env": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "pkg": "@ai-sdk/anthropic",
+      "factory": "createAnthropic",
+      "models": "https://api.anthropic.com/v1/models",
+      "auth": "x-api-key",
+      "evaluation": true
+    },
+    {
+      "id": "google",
+      "name": "Google Gemini",
+      "env": [
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "GEMINI_API_KEY"
+      ],
+      "pkg": "@ai-sdk/google",
+      "factory": "createGoogle",
+      "models": "https://generativelanguage.googleapis.com/v1beta/models",
+      "auth": "query-key",
+      "evaluation": true
+    },
+    {
+      "id": "xai",
+      "name": "xAI Grok",
+      "env": [
+        "XAI_API_KEY"
+      ],
+      "pkg": "@ai-sdk/xai",
+      "factory": "createXai",
+      "models": "https://api.x.ai/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "env": [
+        "MISTRAL_API_KEY"
+      ],
+      "pkg": "@ai-sdk/mistral",
+      "factory": "createMistral",
+      "models": "https://api.mistral.ai/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "env": [
+        "GROQ_API_KEY"
+      ],
+      "pkg": "@ai-sdk/groq",
+      "factory": "createGroq",
+      "models": "https://api.groq.com/openai/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "env": [
+        "DEEPSEEK_API_KEY"
+      ],
+      "pkg": "@ai-sdk/deepseek",
+      "factory": "createDeepSeek",
+      "models": "https://api.deepseek.com/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "togetherai",
+      "name": "Together AI",
+      "env": [
+        "TOGETHER_API_KEY"
+      ],
+      "pkg": "@ai-sdk/togetherai",
+      "factory": "createTogetherAI",
+      "models": "https://api.together.xyz/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "fireworks",
+      "name": "Fireworks",
+      "env": [
+        "FIREWORKS_API_KEY"
+      ],
+      "pkg": "@ai-sdk/fireworks",
+      "factory": "createFireworks",
+      "models": "https://api.fireworks.ai/inference/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "env": [
+        "COHERE_API_KEY"
+      ],
+      "pkg": "@ai-sdk/cohere",
+      "factory": "createCohere",
+      "models": "https://api.cohere.com/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "env": [
+        "PERPLEXITY_API_KEY"
+      ],
+      "pkg": "@ai-sdk/perplexity",
+      "factory": "createPerplexity",
+      "models": null,
+      "auth": "bearer"
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "env": [
+        "CEREBRAS_API_KEY"
+      ],
+      "pkg": "@ai-sdk/cerebras",
+      "factory": "createCerebras",
+      "models": "https://api.cerebras.ai/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "telnyx",
+      "name": "Telnyx Inference (same account as SMS)",
+      "env": [
+        "TELNYX_API_KEY"
+      ],
+      "pkg": "@ai-sdk/openai-compatible",
+      "factory": "createOpenAICompatible",
+      "baseURL": "https://api.telnyx.com/v2/ai",
+      "models": "https://api.telnyx.com/v2/ai/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face Inference Providers",
+      "env": [
+        "HF_TOKEN"
+      ],
+      "pkg": "@ai-sdk/openai-compatible",
+      "factory": "createOpenAICompatible",
+      "baseURL": "https://router.huggingface.co/v1",
+      "models": "https://router.huggingface.co/v1/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama / llama.cpp / LM Studio (local, no key)",
+      "env": [
+        "OLLAMA_BASE_URL"
+      ],
+      "pkg": "@ai-sdk/openai-compatible",
+      "factory": "createOpenAICompatible",
+      "baseURL": "http://localhost:11434/v1",
+      "baseURLEnv": "OLLAMA_BASE_URL",
+      "models": "{baseURL}/models",
+      "auth": "none",
+      "keyless": true
+    },
+    {
+      "id": "azure",
+      "name": "Azure OpenAI",
+      "env": [
+        "AZURE_API_KEY",
+        "AZURE_RESOURCE_NAME"
+      ],
+      "pkg": "@ai-sdk/azure",
+      "factory": "createAzure",
+      "models": null,
+      "auth": "bearer"
+    },
+    {
+      "id": "bedrock",
+      "name": "Amazon Bedrock",
+      "env": [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_REGION"
+      ],
+      "pkg": "@ai-sdk/amazon-bedrock",
+      "factory": "createAmazonBedrock",
+      "models": null,
+      "auth": "none"
+    },
+    {
+      "id": "vertex",
+      "name": "Google Vertex AI",
+      "env": [
+        "GOOGLE_VERTEX_PROJECT",
+        "GOOGLE_VERTEX_LOCATION"
+      ],
+      "pkg": "@ai-sdk/google-vertex",
+      "factory": "createVertex",
+      "models": null,
+      "auth": "none"
+    },
+    {
+      "id": "custom",
+      "name": "Any OpenAI-compatible endpoint",
+      "env": [
+        "AI_CUSTOM_API_KEY",
+        "AI_CUSTOM_BASE_URL"
+      ],
+      "pkg": "@ai-sdk/openai-compatible",
+      "factory": "createOpenAICompatible",
+      "baseURLEnv": "AI_CUSTOM_BASE_URL",
+      "models": "{baseURL}/models",
+      "auth": "bearer"
+    },
+    {
+      "id": "typesafe-ai",
+      "name": "TypeSafe AI (Jev — typed decisions, no text; fastest direct)",
+      "env": [
+        "TYPESAFE_AI_API_KEY",
+        "TYPESAFE_API_KEY"
+      ],
+      "envAny": true,
+      "pkg": "@ai-sdk/typesafe-ai",
+      "factory": "createTypeSafeAi",
+      "models": null,
+      "auth": "bearer",
+      "evaluation": true,
+      "evaluationOnly": true,
+      "openrouter": {
+        "prefix": "typesafe",
+        "aliases": {
+          "jev-latest": "~typesafe/jev-latest"
+        },
+        "stripPatch": true
+      }
+    }
   ],
   "tasks": {
     "chat": "customer-facing chat bot (web widget) — quality + tool use",
@@ -31,6 +283,7 @@
     "automation": "event-driven AI automations (data fixes, triage, enrichment)",
     "summarize": "conversation + ticket summaries, admin digests",
     "classify": "intent / sentiment / tagging (structured output)",
-    "embed": "embeddings for ai-knowledge (RAG) and ml-lab recommendations"
+    "embed": "embeddings for ai-knowledge (RAG) and ml-lab recommendations",
+    "decide": "typed decisions (yes/no · pick-one · rubric score, with probabilities): guard pre-check, conversation labels, inbound triage, knowledge rerank, automation gates, eval rubrics — Jev (typesafe-ai:jev-*) when reachable, else an LLM's evaluation adapter"
   }
 }

@@ -10,11 +10,11 @@ Files (`references/`): `actions.ts` registry + starter actions · `guard.ts` ide
 `mcp.ts` MCP server. All typecheck + pass e2e against the latest AI SDK (kit `tests/e2e`).
 
 ## How a turn runs (`prepareTurn`)
-1. **preflight** (customer-facing only): identity probe / prompt injection / off-topic → canned reply, **zero model calls** (optionally a `guard`-task classifier for subtle cases).
+1. **preflight** (customer-facing only): identity probe / prompt injection / off-topic → canned reply, **zero model calls**. Stage 2 for subtle cases (`guardModel: true`): with a `decide` task, `classifyTyped` — ONE typed decision (Jev, ≈0.1–0.7 s, ≈free) that blocks only at confidence ≥ AI_GUARD_MIN (0.6), so an unsure call never stops a real customer; without it, `classifyTurn` on the `guard` text model.
 2. **context**: persona instructions + visitor-intel context + customer summary + ai-knowledge hits.
 3. **model**: `llm-router.model(task)` wrapped in `identityScrub` (stream-safe vendor-name rewrite; drops reasoning).
 4. **ToolLoopAgent** with `buildTools(actions, ctx)`: only actions the actor + channel may use; writes pause for a **signed approval** (`experimental_toolApprovalSecret` = AI_APPROVAL_SECRET — a tampered or forged approval fails closed).
-5. `onTurnEnd` → ai-analytics; `hooks.record/publish` → ai_actions + live-bus.
+5. `onTurnEnd` → ai-analytics; `onDecision` → ai-analytics `recordDecision` (guard, and every channel / knowledge / automation decision that receives AgentDeps); `hooks.record/publish` → ai_actions + live-bus.
 
 ## Actions = the only way AI changes data
 ```ts

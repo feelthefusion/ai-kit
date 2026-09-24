@@ -9,6 +9,9 @@
  * used when present. BYOK calls are priced from the ai_models catalog (input/output micros per Mtok).
  *
  * Cohesion: site-wide tracking (page views, sessions, funnels, attribution) belongs to marketing-kit's
+ * Typed decisions (llm-router decide: guard, triage, labels, rerank, gates) land in the same ai_calls
+ * with `purpose` set — recordDecision — and never count as conversation turns.
+ *
  * journey-analytics when installed — ONE writer of crm_events. ai-analytics sends it a compact
  * "ai.*" event per turn/outcome through `forward` instead of keeping a second events table.
  */
@@ -17,6 +20,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { aiCalls, aiConversations, aiFeedback, aiModels } from "../../ai-kit/references/ai-schema";
 import { publish } from "../../live-bus/references/bus";
 import type { TurnTelemetry } from "../../site-agent/references/agent";
+import type { DecisionTelemetry } from "../../llm-router/references/decide";
 
 type Db = NodePgDatabase<Record<string, never>>;
 /** journey-analytics collector (marketing-kit) — `collect(name, props, subject)`; undefined when absent. */
@@ -34,10 +38,10 @@ async function pricing(db: Db, ref: string) {
 }
 
 /** Exact provider charge when reported, else catalog price × tokens. Micro-dollars. */
-export async function costMicros(db: Db, t: Pick<TurnTelemetry, "ref" | "provider" | "modelId" | "inputTokens" | "outputTokens" | "providerMetadata">): Promise<number | undefined> {
+export async function costMicros(db: Db, t: Pick<TurnTelemetry, "ref" | "provider" | "modelId" | "inputTokens" | "outputTokens" | "providerMetadata"> & { priceRef?: string }): Promise<number | undefined> {
   const or = (t.providerMetadata as { openrouter?: { usage?: { cost?: number } } } | undefined)?.openrouter?.usage?.cost;
   if (typeof or === "number") return Math.round(or * 1e6);
-  const p = (await pricing(db, t.ref)) ?? (await pricing(db, `openrouter:${t.provider}/${t.modelId}`));
+  const p = (await pricing(db, t.ref)) ?? (t.priceRef ? await pricing(db, t.priceRef) : null) ?? (await pricing(db, `openrouter:${t.provider}/${t.modelId}`));
   if (!p) return undefined;
   return Math.round(((t.inputTokens ?? 0) * p.inM + (t.outputTokens ?? 0) * p.outM) / 1e6);
 }
@@ -55,6 +59,22 @@ export function recordTurn(db: Db, forward?: Forward) {
     if (t.conversationId) await db.update(aiConversations).set({ turns: sql`${aiConversations.turns} + 1`, lastAt: sql`now()` }).where(eq(aiConversations.id, t.conversationId));
     publish("ai.call", { task: String(t.task), costMicros: cost, latencyMs: t.latencyMs, channel: t.channel, error: t.error });
     await forward?.("ai.turn", { task: t.task, channel: t.channel, tool_calls: t.toolCalls, cost_micros: cost, latency_ms: t.latencyMs, verdict: t.verdict }, { visitorId: t.visitorId });
+  };
+}
+
+/** Wire as AgentDeps.onDecision (and pass to decide() in jobs). One row per typed decision. */
+export function recordDecision(db: Db, forward?: Forward) {
+  return async (t: DecisionTelemetry) => {
+    const cost = await costMicros(db, t).catch(() => undefined);
+    await db.insert(aiCalls).values({
+      task: String(t.task), purpose: t.purpose, ref: t.ref, provider: t.provider, modelId: t.modelId, servedBy: t.servedBy,
+      conversationId: t.conversationId, automationRunId: t.automationRunId, variantId: t.variantId,
+      channel: t.channel as typeof aiCalls.$inferInsert.channel, visitorId: t.visitorId,
+      inputTokens: t.inputTokens, outputTokens: t.outputTokens, costMicros: cost, latencyMs: t.latencyMs,
+      steps: 0, toolCalls: 0, finishReason: t.error ? "error" : t.fallback ? "fallback" : "decision", error: t.error,
+    });
+    publish("ai.call", { task: String(t.task), purpose: t.purpose, costMicros: cost, latencyMs: t.latencyMs, channel: t.channel, error: t.error });
+    await forward?.("ai.decision", { purpose: t.purpose, ref: t.ref, latency_ms: t.latencyMs, fallback: t.fallback, cost_micros: cost }, { visitorId: t.visitorId });
   };
 }
 

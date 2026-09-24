@@ -11,7 +11,7 @@ import { mountChat, upsert, type ConversationStore } from "../../skills/site-age
 import { handleInbound, stripQuoted, threadKey, type ChannelDeps } from "../../skills/ai-channels/references/channels";
 import { createRouter } from "../../skills/llm-router/references/providers";
 import { auc, featurize, predict, robustZ, trainLogReg } from "../../skills/ml-lab/references/ml";
-import { bucket, decide, pickVariant, zBetter } from "../../skills/ai-evolve/references/evolve";
+import { bucket, judgeVariants, pickVariant, zBetter } from "../../skills/ai-evolve/references/evolve";
 import { chunk } from "../../skills/ai-knowledge/references/knowledge";
 import { describeVisitor, intentScore } from "../../skills/visitor-intel/references/identity";
 import { __matches, __dryRunActions, AutomationSpec } from "../../skills/ai-automations/references/automations";
@@ -137,9 +137,9 @@ test("evolve: stable buckets, canary split ≈ traffic_bp, z-test and promote/re
   assert.ok(zBetter(100, 300, 150, 300).p < 0.001);
   assert.ok(zBetter(100, 300, 102, 300).p > 0.3);
   const champ = { variantId: "c", ref: "a", status: "champion", conversations: 400, wins: 200, usdPerWin: 0.01 };
-  assert.equal(decide(champ, [{ variantId: "x", ref: "b", status: "challenger", conversations: 400, wins: 260, usdPerWin: 0.011 }]).promote, "x");
-  assert.equal(decide(champ, [{ variantId: "x", ref: "b", status: "challenger", conversations: 400, wins: 260, usdPerWin: 0.05 }]).promote, undefined, "too expensive per win");
-  assert.deepEqual(decide(champ, [{ variantId: "y", ref: "c", status: "challenger", conversations: 400, wins: 140, usdPerWin: 0.01 }]).retire, ["y"]);
+  assert.equal(judgeVariants(champ, [{ variantId: "x", ref: "b", status: "challenger", conversations: 400, wins: 260, usdPerWin: 0.011 }]).promote, "x");
+  assert.equal(judgeVariants(champ, [{ variantId: "x", ref: "b", status: "challenger", conversations: 400, wins: 260, usdPerWin: 0.05 }]).promote, undefined, "too expensive per win");
+  assert.deepEqual(judgeVariants(champ, [{ variantId: "y", ref: "c", status: "challenger", conversations: 400, wins: 140, usdPerWin: 0.01 }]).retire, ["y"]);
 });
 test("knowledge: chunks respect size and keep every sentence", () => {
   const text = Array.from({ length: 60 }, (_, i) => `Sentence number ${i} about shipping and returns.`).join(" ");

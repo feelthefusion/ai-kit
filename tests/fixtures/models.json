@@ -1,14 +1,8 @@
 {"data": [
-  {"id": "acme/frontier-1", "name": "Acme: Frontier 1", "created": 1790000000, "context_length": 400000,
-   "pricing": {"prompt": "0.000003", "completion": "0.000015"}, "supported_parameters": ["tools", "tool_choice", "temperature", "response_format"],
-   "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"]}},
-  {"id": "acme/flash-mini", "name": "Acme: Flash Mini", "created": 1795000000, "context_length": 128000,
-   "pricing": {"prompt": "0.0000001", "completion": "0.0000004"}, "supported_parameters": ["tools", "tool_choice", "temperature"],
-   "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]}},
-  {"id": "other/no-tools-chat", "name": "Other: Chat", "created": 1780000000, "context_length": 32000,
-   "pricing": {"prompt": "0.0000002", "completion": "0.0000002"}, "supported_parameters": ["temperature"],
-   "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]}},
-  {"id": "pix/image-gen", "name": "Pix: Image", "created": 1791000000, "context_length": 8000,
-   "pricing": {"prompt": "0.00001", "completion": "0.00004"}, "supported_parameters": [],
-   "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]}}
+  {"id": "acme/frontier-1", "name": "Acme: Frontier 1", "created": 1790000000, "context_length": 400000, "pricing": {"prompt": "0.000003", "completion": "0.000015"}, "supported_parameters": ["tools", "tool_choice", "temperature", "response_format"], "architecture": {"input_modalities": ["text", "image"], "output_modalities": ["text"]}},
+  {"id": "acme/flash-mini", "name": "Acme: Flash Mini", "created": 1795000000, "context_length": 128000, "pricing": {"prompt": "0.0000001", "completion": "0.0000004"}, "supported_parameters": ["tools", "tool_choice", "temperature"], "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]}},
+  {"id": "other/no-tools-chat", "name": "Other: Chat", "created": 1780000000, "context_length": 32000, "pricing": {"prompt": "0.0000002", "completion": "0.0000002"}, "supported_parameters": ["temperature"], "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]}},
+  {"id": "pix/image-gen", "name": "Pix: Image", "created": 1791000000, "context_length": 8000, "pricing": {"prompt": "0.00001", "completion": "0.00004"}, "supported_parameters": [], "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]}},
+  {"id": "typesafe/jev-1.13", "name": "TypeSafe: Jev 1.13", "created": 1789689684, "context_length": 32000, "pricing": {"prompt": "0.000000042", "completion": "0"}, "supported_parameters": [], "architecture": {"input_modalities": ["text"], "output_modalities": ["decisions"]}},
+  {"id": "~typesafe/jev-latest", "name": "TypeSafe: Jev Latest", "created": 1789689685, "context_length": 32000, "pricing": {"prompt": "0.000000042", "completion": "0"}, "supported_parameters": [], "architecture": {"input_modalities": ["text"], "output_modalities": ["decisions"]}}
 ]}

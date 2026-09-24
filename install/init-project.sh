@@ -6,7 +6,8 @@
 #                                live channels, tracking/analytics hand-offs — auto-drafted from the
 #                                repo (deps, routes, tables, helix-style modules); edit it
 #   .agents/ai-kit.env           per-repo tool env (gitignored)
-#   evals/                       cases.json (the ai-evolve gate) + promptfoo eval / red-team configs
+#   evals/                       cases.json (the ai-evolve gate) + decisions.json (typed-decision suite)
+#                                + promptfoo eval / red-team configs
 #   AGENTS.md / CLAUDE.md        marked AI Kit block
 #   .claude/settings.json        vendor plugins for THIS repo (Resend inbox, Telnyx AI)
 #   .claude/skills/              curated upstream skills, linked live (git-excluded)
@@ -77,6 +78,7 @@ print(f"""# AI stack — {os.path.basename(root)}
 | automation | ? | ? |
 | summarize / classify | ? | ? |
 | embed | ? (dims must match EMBED_DIMS) | — |
+| decide | ? (typed decisions — typesafe-ai:jev-<version>, or via OpenRouter; blank = off) | ? (cheap LLM adapter) |
 Pick from the live catalog: `ai-models suggest` · admin console overrides these at runtime.
 
 ## Surfaces
@@ -129,7 +131,7 @@ touch .gitignore
 grep -qxF '.agents/ai-kit.env' .gitignore || { printf '\n# AI Kit (per-repo env)\n.agents/ai-kit.env\n' >> .gitignore; echo "  · .gitignore += .agents/ai-kit.env ✓"; }
 
 # --- evals (seeded once, yours afterwards) -------------------------------------------------
-for f in cases.json promptfooconfig.yaml redteam.yaml; do
+for f in cases.json decisions.json promptfooconfig.yaml redteam.yaml; do
     [ -f "evals/$f" ] && continue
     cp "$KIT_ROOT/templates/evals/$f" "evals/$f"; echo "  · evals/$f seeded ✓"
 done
@@ -176,12 +178,14 @@ put(os.path.join(root, ".agents", "growth-stack.md"), "growth", """
 ## AI (AI Kit)
 - AI conversations, actions and model calls are tracked by ai-analytics (ai_* tables) and forwarded to crm_events as `ai.*` events through journey-analytics' collector — one writer, no duplicate tracking.
 - AI-assisted orders: ai_conversations.attributed_order_id (24h window) — join key for campaign lift. Email/SMS bot replies send through lifecycle-engine's sender.
+- Judgment calls in marketing models (reply sorting, lead fit, churn-risk reasons): ask them through AI Kit's typed `decide()` (llm-router, task "decide" — Jev or fallback LLM, logged in ai_calls) — one decision layer, not a second one.
 """, "growth-stack.md += AI hand-off (journey-analytics stays the tracking writer)")
 put(os.path.join(root, ".agents", "security-context.md"), "surface", """
 ## AI surface (AI Kit) — red-team these
 - POST /api/v1/ai/chat (streams; guest + customer) · GET /api/v1/ai/chat/:id(/live) · POST /api/v1/ai/eval (bearer AI_EVAL_TOKEN) · /api/v1/ai/mcp (bearer AI_MCP_TOKENS) · /api/v1/ai/hooks/:name (Standard Webhooks sig) · /api/v1/admin/ai/* (staff)
 - Invariants to attack: customer id from session only · write actions need an HMAC-signed approval (AI_APPROVAL_SECRET) · staff tools never exposed to customers · no model/vendor name leaks · guest conversations bound to an httpOnly cookie, not the (client-claimed) visitor id
-- Tools: ai-eval redteam (promptfoo) · evals/cases.json regressions
+- Typed-decision seams (when a decide task is set): guard stage 2 passes turns it is unsure about (confidence < AI_GUARD_MIN) by design — probe for low-confidence bypasses; channel triage drops mail it scores "not a person" — probe for suppressed real customers; automation gates skip below min
+- Tools: ai-eval redteam (promptfoo) · evals/cases.json + evals/decisions.json regressions
 """, "security-context.md += AI attack surface")
 PY
 

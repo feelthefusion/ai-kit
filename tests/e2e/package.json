@@ -13,6 +13,7 @@
     "@ai-sdk/openai-compatible": "latest",
     "@ai-sdk/provider": "latest",
     "@ai-sdk/react": "latest",
+    "@ai-sdk/typesafe-ai": "latest",
     "@fingerprint/agent": "latest",
     "@fingerprint/node-sdk": "latest",
     "@fingerprintjs/fingerprintjs": "latest",

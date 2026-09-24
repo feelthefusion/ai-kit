@@ -10,7 +10,7 @@ File: `references/ml.ts` · table `ai_predictions` (subject, kind, value, model 
 ## What ships
 | model | function | trains on | used by |
 |---|---|---|---|
-| conversation labels | `labelConversation(router, transcript)` → `ConversationLabel` (intent, sentiment, resolved, summary) | — (`classify` task, structured output) | ai-analytics (outcomes, top intents), ai-evolve (win metric), ai-automations (negative-sentiment / complaint triggers) |
+| conversation labels | `labelConversation(router, transcript)` → `ConversationLabel` (intent, sentiment, resolved, summary) | — (with a `decide` task: ONE typed call → labels + `confidence` per label, train only on confident ones; summary on `summarize`. Else `classify`, structured output) | ai-analytics (outcomes, top intents), ai-evolve (win metric), ai-automations (negative-sentiment / complaint triggers) |
 | purchase intent `intent_v1` | `featurize` → `trainLogReg` → `auc` → `trainIntent(db, sessions, minAuc = 0.7)` | visitor sessions → converted? (≥ 200; 80/20 split) | visitor-intel `intentScore` (replaced only when HELD-OUT AUC ≥ 0.7 and ≥ the stored version) |
 | similar products | `similarProducts(db, productId, k)` | ai_knowledge product vectors (same embeddings as RAG) | site-agent answers, widget recs, emails |
 | anomalies | `robustZ(series)` (median/MAD) | hourly ai_calls cost, conversation volume, guard stops | admin alert + `ai.call` event (analytics `anomalies` query) |

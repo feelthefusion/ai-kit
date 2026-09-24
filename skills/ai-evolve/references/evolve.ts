@@ -35,7 +35,8 @@ interface OrModel {
 const perMtok = (p?: string) => (p && Number.isFinite(Number(p)) ? Math.round(Number(p) * 1e12) : null);
 
 export async function fetchOpenRouterCatalog(fetchFn: typeof fetch = fetch): Promise<OrModel[]> {
-  const r = await fetchFn("https://openrouter.ai/api/v1/models", { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+  // output_modalities=all: the default list is text-out only and hides decision models (Jev)
+  const r = await fetchFn("https://openrouter.ai/api/v1/models?output_modalities=all", { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
   if (!r.ok) throw new Error(`catalog ${r.status}`);
   return ((await r.json()) as { data: OrModel[] }).data;
 }
@@ -61,7 +62,7 @@ export async function refreshCatalog(db: Db, models: OrModel[]): Promise<{ added
   return { added, retired };
 }
 
-export interface Fit { needsTools: boolean; minContext: number; maxPriceRatio: number; textOut: boolean }
+export interface Fit { needsTools: boolean; minContext: number; maxPriceRatio: number; textOut: boolean; decisionsOut?: boolean }
 export const TASK_FIT: Record<string, Fit> = {
   chat: { needsTools: true, minContext: 32_000, maxPriceRatio: 1.5, textOut: true },
   channel_reply: { needsTools: true, minContext: 32_000, maxPriceRatio: 1.5, textOut: true },
@@ -70,6 +71,8 @@ export const TASK_FIT: Record<string, Fit> = {
   guard: { needsTools: false, minContext: 8_000, maxPriceRatio: 1, textOut: true },
   classify: { needsTools: false, minContext: 8_000, maxPriceRatio: 1, textOut: true },
   summarize: { needsTools: false, minContext: 32_000, maxPriceRatio: 1.2, textOut: true },
+  // typed decisions: decision-modality models (Jev versions); promoted on the decision suite, not traffic
+  decide: { needsTools: false, minContext: 8_000, maxPriceRatio: 3, textOut: false, decisionsOut: true },
 };
 
 /** Candidate filter; ranking by quality is the openrouter-benchmarks skill's job (agent-side). */
@@ -78,7 +81,9 @@ export async function proposeChallengers(db: Db, task: string, championRef: stri
   const [champ] = await db.select().from(aiModels).where(eq(aiModels.ref, championRef)).limit(1);
   const pool = candidates.length ? await db.select().from(aiModels).where(and(inArray(aiModels.ref, candidates), isNull(aiModels.retiredAt))) : [];
   const champPrice = (champ?.inputMicrosPerMtok ?? 0) + (champ?.outputMicrosPerMtok ?? 0);
-  const ok = pool.filter((m) => (!fit.needsTools || m.tools) && (m.contextLength ?? 0) >= fit.minContext && (!fit.textOut || (m.modalities?.output ?? ["text"]).includes("text"))
+  const out = (m: (typeof pool)[number]) => m.modalities?.output ?? ["text"];
+  // floating aliases (~vendor/…-latest) never become challengers: the gate promotes what it tested
+  const ok = pool.filter((m) => !m.modelId.startsWith("~") && (!fit.needsTools || m.tools) && (m.contextLength ?? 0) >= fit.minContext && (!fit.textOut || out(m).includes("text")) && (!fit.decisionsOut || out(m).includes("decisions"))
     && (!champPrice || ((m.inputMicrosPerMtok ?? Infinity) + (m.outputMicrosPerMtok ?? Infinity)) <= champPrice * fit.maxPriceRatio)).slice(0, limit);
   for (const m of ok) await db.insert(aiVariants).values({ task, ref: m.ref, status: "challenger", trafficBp: 0 });
   return ok.map((m) => m.ref);
@@ -98,7 +103,6 @@ export function pickVariant(variants: VariantRow[], task: string, subject: strin
   return champion;
 }
 
-/** Two-proportion z-test (one-sided: is B better than A?). */
 /** site-agent `variant` dep: live variants (cached briefly, invalidated on "ai.settings") → sticky pick per subject. */
 export function variantPicker(db: Db, ttlMs = 60_000) {
   let at = 0; let rows: (VariantRow & { task: string })[] = [];
@@ -114,6 +118,7 @@ export function variantPicker(db: Db, ttlMs = 60_000) {
   };
 }
 
+/** Two-proportion z-test (one-sided: is B better than A?). */
 export function zBetter(aWins: number, aN: number, bWins: number, bN: number): { z: number; p: number } {
   if (!aN || !bN) return { z: 0, p: 1 };
   const pa = aWins / aN, pb = bWins / bN, pp = (aWins + bWins) / (aN + bN);
@@ -133,7 +138,7 @@ export interface Scored { variantId: string; ref: string; status: string; conver
  * Decide from live outcomes. A "win" = conversation resolved by AI or action done with no thumbs-down.
  * Promote when p < 0.05, n ≥ minN on both sides, and cost per win ≤ champion × maxCostRatio.
  */
-export function decide(champ: Scored, challengers: Scored[], opts = { minN: 200, alpha: 0.05, maxCostRatio: 1.25 }) {
+export function judgeVariants(champ: Scored, challengers: Scored[], opts = { minN: 200, alpha: 0.05, maxCostRatio: 1.25 }) {
   const out: { promote?: string; retire: string[] } = { retire: [] };
   for (const c of challengers) {
     if (c.conversations < opts.minN || champ.conversations < opts.minN) continue;

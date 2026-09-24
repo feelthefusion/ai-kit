@@ -16,7 +16,7 @@ export interface Topics {
   visitor: { visitorId: string; [k: string]: unknown };           // visitor-intel (helix ConsoleVisitorRow)
   "ai.conversation": { id: string; channel: string; status: string; visitorId?: string; customerId?: string; lastText?: string; intent?: string };
   "ai.action": { action: string; status: string; channel: string; conversationId?: string; summary?: string };
-  "ai.call": { task: string; costMicros?: number; latencyMs?: number; channel?: string; error?: string };
+  "ai.call": { task: string; purpose?: string; costMicros?: number; latencyMs?: number; channel?: string; error?: string };
   "ai.automation": { automationId: string; runId: string; status: string; eventId?: string };
   "ai.settings": { kind: "model" | "key" | "persona" | "automation"; task?: string };
   "ai.models": { added: string[]; retired: string[] };

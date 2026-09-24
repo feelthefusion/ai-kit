@@ -4,12 +4,12 @@
   ai-models [search] [QUERY] [--tools] [--max IN_PER_MTOK] [--ctx MIN_K] [--limit N]
   ai-models new                 models that appeared since you last looked (and ones retired)
   ai-models providers           every provider the router supports, its env names, key set?
-  ai-models suggest             candidates per task (chat, copilot, guard, …) from the live catalog
+  ai-models suggest             candidates per task (chat, copilot, guard, …, decide) from the live catalog
   ai-models show <provider/model>   one model: pricing, context, modalities, parameters
   --json on any command for machine output.
 
-Source: OpenRouter's public catalog (https://openrouter.ai/api/v1/models, no key needed) — 300+
-models from every major lab, refreshed live. Refs in the app are "<provider>:<model>", e.g.
+Source: OpenRouter's public catalog (https://openrouter.ai/api/v1/models?output_modalities=all, no
+key needed) — 600+ models from every major lab incl. decision models (Jev), refreshed live. Refs in the app are "<provider>:<model>", e.g.
 anthropic:claude-sonnet-5 → OpenRouter slug anthropic/claude-sonnet-5 (llm-router maps both ways).
 """
 import json, os, re, sys, time, urllib.request
@@ -20,7 +20,8 @@ CONF = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ai-ki
 SEEN = CONF / "models-seen.json"
 CACHE = CONF / "models-cache.json"
 SECRETS = Path(os.environ.get("AI_SECRETS", CONF / "secrets.env"))
-URL = os.environ.get("AI_MODELS_URL", "https://openrouter.ai/api/v1/models")
+# output_modalities=all: the default list is text-out only and hides decision models (Jev)
+URL = os.environ.get("AI_MODELS_URL", "https://openrouter.ai/api/v1/models?output_modalities=all")
 
 def catalog(max_age=900):
     if CACHE.exists() and time.time() - CACHE.stat().st_mtime < max_age and not os.environ.get("AI_MODELS_URL"):
@@ -42,12 +43,14 @@ def row(m):
     return {"id": m["id"], "ref": m["id"].replace("/", ":", 1), "name": m.get("name", ""), "ctx": m.get("context_length") or 0,
             "in": per_m(p.get("prompt")), "out": per_m(p.get("completion")),
             "tools": "tools" in (m.get("supported_parameters") or []), "created": m.get("created") or 0,
-            "modalities": (m.get("architecture") or {}).get("input_modalities") or []}
+            "modalities": (m.get("architecture") or {}).get("input_modalities") or [],
+            "outm": (m.get("architecture") or {}).get("output_modalities") or ["text"]}
 def fmt_price(v): return "  free" if v == 0 else ("     ?" if v is None else f"{v:6.2f}")
 def table(rows, limit):
     print(f"  {'model (ref for the app)':<52} {'ctx':>7} {'$in/M':>6} {'$out/M':>6} tools")
     for r in rows[:limit]:
-        print(f"  {r['ref'][:52]:<52} {r['ctx']//1000:>6}k {fmt_price(r['in'])} {fmt_price(r['out'])}  {'✓' if r['tools'] else '·'}")
+        kind = "dec" if "decisions" in r["outm"] else ("✓" if r["tools"] else "·")
+        print(f"  {r['ref'][:52]:<52} {r['ctx']//1000:>6}k {fmt_price(r['in'])} {fmt_price(r['out'])}  {kind}")
     if len(rows) > limit: print(f"  … {len(rows)-limit} more (--limit N)")
 
 def keys_present():
@@ -98,7 +101,9 @@ def main(argv):
         return
 
     if cmd == "suggest":
-        live = [r for r in rows if r["in"] is not None and r["out"] is not None and not r["id"].endswith(":free")]
+        priced = [r for r in rows if r["in"] is not None and r["out"] is not None and not r["id"].endswith(":free")]
+        live = [r for r in priced if "text" in r["outm"]]
+        decisions = sorted([r for r in priced if "decisions" in r["outm"]], key=lambda r: (r["id"].startswith("~"), -r["created"]))
         tools = [r for r in live if r["tools"]]
         recent = lambda rs: sorted(rs, key=lambda r: -r["created"])
         cheap = lambda rs: sorted(rs, key=lambda r: (r["in"] + r["out"] * 3))
@@ -107,9 +112,11 @@ def main(argv):
             "copilot / automation (tools, long context)": recent([r for r in tools if r["ctx"] >= 200_000])[:6],
             "guard / classify (cheapest with tools)": cheap([r for r in tools if r["ctx"] >= 32_000 and r["in"] > 0])[:6],
             "summarize (cheap, long context)": cheap([r for r in live if r["ctx"] >= 128_000 and r["in"] > 0])[:6],
+            "decide (typed decisions — Jev; pin a version)": decisions[:6],
         }
         if as_json: print(json.dumps(picks, indent=2)); return
         for k, rs in picks.items(): print(f"▶ {k}"); table(rs, 6)
+        if decisions: print("  decide refs above route via OpenRouter; with a TypeSafe key use typesafe-ai:jev-<version> (fastest)")
         print("\n  pick per task in the admin AI console, or set repo defaults in shared/ai-config.ts;")
         print("  ai-evolve canaries new challengers automatically (eval-gated) — see skill ai-evolve.")
         return

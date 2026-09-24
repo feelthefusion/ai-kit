@@ -15,6 +15,7 @@ File: `references/automations.ts`. Specs live in the repo (`automations/*.automa
   "maxSteps": 8 }
 ```
 - `trigger`: event name, `*` suffix allowed · `when`: shallow equality on event data · `actions`: subset of the registry (the agent sees ONLY these) · actor = `{ kind: "automation", permissions }`.
+- `gate` (optional): `{ "question": "Does this review describe a damaged or wrong item?", "min": 0.7 }` — one typed yes/no on the event by the `decide` task (Jev) BEFORE the agent runs; below min → run `skipped` with P recorded, no model turn spent. No decide model → the run fails visibly (a gated automation never acts ungated).
 - `mode: "dry_run"` (default): actions are recorded as *planned*, never executed — `preview(db, deps, spec, sampleEvent)` shows what it WOULD do. Flip to `live` once the plan looks right.
 
 ## Runtime

@@ -12,6 +12,7 @@ Files: `references/telemetry.ts` (writers) · `references/analytics.sql` (every 
 | table | written by | when |
 |---|---|---|
 | `ai_calls` | `recordTurn(db, forward)` (site-agent `onTurnEnd`) | every agent turn / model call: task, ref, servedBy, variant, tokens, `cost_micros`, latency, steps, tool calls, error |
+| `ai_calls` (`purpose` set) | `recordDecision(db, forward)` (AgentDeps `onDecision`, decide `onCall`) | every typed decision — guard, triage, label, rerank, gate, eval: ref, served-by, fallback, tokens, cost (Jev $0.042/M in, out free; OpenRouter exact), latency. Never counted as a conversation turn; forwards `ai.decision` |
 | `ai_conversations` (outcome, intent, CSAT, attributed order) | `setOutcome`, `attributeOrder`, ml-lab labels | resolution, handoff, first order within the window |
 | `ai_feedback` | `recordFeedback` | 👍/👎 + comment from the widget, SMS "1–5" replies |
 | (reads) `ai_actions`, `ai_automation_runs` | site-agent / ai-automations | acceptance + automation stats |
@@ -25,7 +26,7 @@ else ai_models pricing × tokens (refreshed by ai-evolve). Stored in **micro-dol
 - Reconcile spend against OpenRouter: `openrouter-generations` (per call) / `openrouter-analytics` (account).
 
 ## Dashboard (analytics.sql)
-spend_by_task_model · spend_daily · conversations_by_channel (volume, resolution %, handoff %, turns, CSAT) · top_intents · actions (executed / proposed → acceptance %) · ai_revenue (orders credited within 24h of an AI conversation) · cost_per_resolution · automations · guard (stops before the model) · anomalies (hour > 3× trailing mean → ml-lab alert).
+spend_by_task_model · spend_daily · conversations_by_channel (volume, resolution %, handoff %, turns, CSAT) · top_intents · actions (executed / proposed → acceptance %) · ai_revenue (orders credited within 24h of an AI conversation) · cost_per_resolution · automations · guard (stops before the model) · decisions (per purpose × model: calls, fallback %, error %, p50/p95 ms, cost) · anomalies (hour > 3× trailing mean → ml-lab alert).
 - Admin console: run the named queries; live tiles subscribe to SSE `/api/v1/admin/ai/live` (`ai.call`, `ai.conversation`, `ai.action`, `ai.automation`, `visitor`).
 - Terminal: `ai-report` (all, last 7d) · `ai-report --days 30 spend_by_task_model ai_revenue` · `ai-report --sql cost_per_resolution`.
 

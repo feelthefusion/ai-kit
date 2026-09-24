@@ -12,12 +12,18 @@
  * DKIM/SPF pass. SMS From is carrier-delivered → customer when it matches a verified phone. Otherwise
  * the sender is a guest: public help only, account changes get a sign-in link.
  *
+ * Triage (when a "decide" task exists — Jev, ~100 ms, near-free): before the agent runs, ONE typed
+ * decision answers needs_reply / wants_human / urgency. Confidently-not-a-person mail (receipts,
+ * newsletters, out-of-office that slipped past the header check) is dropped at P(needs_reply) < 0.15;
+ * everything else is answered as usual and `onTriage` gets the signals (priority inbox, staff ping).
+ *
  * Confirming actions off-web: pending approval → SMS "Reply YES to confirm: …" / email confirm link.
  * The signed approval request stays in the stored transcript; YES appends the approval response.
  */
 import { convertToModelMessages, type ModelMessage, type UIMessage } from "ai";
 import type { Actor, Channel } from "../../site-agent/references/actions";
 import { runTurn, type AgentDeps } from "../../site-agent/references/agent";
+import { decide, level, p as prob, yes } from "../../llm-router/references/decide";
 
 export interface Inbound {
   channel: "email" | "sms" | "whatsapp";
@@ -45,6 +51,8 @@ export interface ChannelDeps extends AgentDeps {
   };
   /** marketing-kit lifecycle-engine outbox when installed; else direct provider send. */
   send(m: { channel: Inbound["channel"]; to: string; from: string; body: string; subject?: string; inReplyTo?: string; idempotencyKey: string }): Promise<void>;
+  /** Triage signals for every inbound a person sent (0–1 probabilities; urgency 0 routine · 1 soon · 2 urgent). */
+  onTriage?(conversationId: string, t: { needsReply: number; wantsHuman: number; urgency: number }): void | Promise<void>;
   /** Signed confirm link for email approvals (GET → appends approval, re-runs). */
   confirmUrl?(conversationId: string, approvalId: string): string;
 }
@@ -52,6 +60,12 @@ export interface ChannelDeps extends AgentDeps {
 const YES = /^\s*(y|yes|yeah|yep|confirm|ok|okay|do it|sure)\s*[.!]*\s*$/i;
 const NO = /^\s*(n|no|nope|cancel|stop that|don'?t)\s*[.!]*\s*$/i;
 const AUTO = /(^|\b)(no-?reply|mailer-daemon|postmaster|bounce)/i;
+
+export const TRIAGE = {
+  needs_reply: { type: "boolean", instructions: "Is this message from a person who expects a reply (not an automatic receipt, newsletter, out-of-office, notification or bounce)?" },
+  wants_human: { type: "boolean", instructions: "Does the sender ask for, or clearly need, a human staff member rather than an automated assistant?" },
+  urgency: { type: "score", instructions: "How time-sensitive is this message for the business?", criteria: ["routine", "soon — within a day", "urgent — needs attention now"] },
+} as const;
 
 export function threadKey(m: Inbound): string {
   if (m.channel === "email") return `email:${m.references?.[0] ?? m.inReplyTo ?? m.messageId ?? `${m.from}:${m.subject ?? ""}`}`;
@@ -77,6 +91,16 @@ export async function handleInbound(d: ChannelDeps, m: Inbound): Promise<{ repli
   }
 
   const turnText = incoming[0].role === "user" ? String(incoming[0].content) : "";
+  if (turnText && (await d.router.has("decide"))) {
+    try {
+      const t = await decide(d.router, {
+        purpose: "triage", questions: TRIAGE, onCall: d.onDecision, context: { conversationId: convId, channel: m.channel },
+        state: { channel: m.channel, subject: m.subject ?? null, message: turnText.slice(0, 4000) },
+      });
+      await d.onTriage?.(convId, { needsReply: prob(t, "needs_reply"), wantsHuman: prob(t, "wants_human"), urgency: level(t, "urgency") });
+      if (!yes(t, "needs_reply", 0.15)) return { replied: false, reason: "not a person" };
+    } catch { /* triage is best-effort — answer as usual */ }
+  }
   const r = await runTurn(d, { actor, channel: m.channel, conversationId: convId, correlationId: `${convId}:${m.messageId ?? Date.now()}`, text: turnText }, [...history, ...incoming]);
 
   let body = r.text;

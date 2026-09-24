@@ -46,7 +46,7 @@ if command -v npm >/dev/null; then
     (cd "$E" && npx tsc -p . >"$T/tsc.log" 2>&1) && ok "all references typecheck (strict) against ai@$v" || { bad "typecheck"; head -20 "$T/tsc.log"; }
     (cd "$E" && npx tsx --test --test-reporter=tap ./*.test.ts >"$T/e2e.log" 2>&1)
     np="$(sed -n 's/^# pass //p' "$T/e2e.log")"; nf="$(sed -n 's/^# fail //p' "$T/e2e.log")"
-    [ "${nf:-1}" = 0 ] && [ "${np:-0}" -ge 30 ] && ok "e2e: $np behaviour tests (identity lock, scope lock, signed approvals, real HTTP stream, SMS YES, failover, eval gate, ML, bus, webhooks)" \
+    [ "${nf:-1}" = 0 ] && [ "${np:-0}" -ge 40 ] && ok "e2e: $np behaviour tests (identity lock, scope lock, signed approvals, real HTTP stream, SMS YES, failover, eval gate, typed decisions on the wire, ML, bus, webhooks)" \
       || { bad "e2e ($np pass, $nf fail)"; grep -E "^not ok|error:|Error" "$T/e2e.log" | head -20; }
 else echo "  · npm not found — e2e skipped"; fi
 
@@ -66,8 +66,12 @@ if command -v createdb >/dev/null && command -v psql >/dev/null && psql -Atc "se
         grep -qx "0.0267" <<<"$(R cost_per_resolution)" && ok "cost per resolution \$0.0267 (80k µ\$ / 3 resolutions)" || bad "cost_per_resolution: $(R cost_per_resolution | tail -1)"
         grep -qx "vip-tag,3,0,1,2,0.0150,4" <<<"$(R automations)" && ok "automations: 3 runs, 1 dry, 2 actions, \$0.015 from ai_calls (no join double-count)" || bad "automations: $(R automations | tail -1)"
         grep -qx "update_shipping_address,web,2,1,0,50.0" <<<"$(R actions)" && ok "actions: confirm-card acceptance 50%" || bad "actions: $(R actions | tail -1)"
-        grep -qx "web,1,50.00,526.3" <<<"$(R ai_revenue)" && ok "AI-attributed revenue \$50 → \$526.3 per AI dollar" || bad "ai_revenue: $(R ai_revenue | tail -1)"
+        grep -qx "web,1,50.00,525.7" <<<"$(R ai_revenue)" && ok "AI-attributed revenue \$50 → \$525.7 per AI dollar (typed decisions count as AI spend)" || bad "ai_revenue: $(R ai_revenue | tail -1)"
         [ "$(R guard | tail -2 | sort | tr '\n' ' ')" = "identity,2 off_topic,1 " ] && ok "guard stops counted by verdict" || bad "guard: $(R guard | tail -2 | tr '\n' ' ')"
+        dec="$(R decisions)"
+        grep -qx "guard,typesafe-ai:jev-1.13.0,2,0.000,0.000,200,290,0.000010" <<<"$dec" && grep -qx "guard,openai:mini,1,1.000,0.000,900,900,0.000100" <<<"$dec" \
+          && grep -qx "triage,typesafe-ai:jev-1.13.0,1,0.000,1.000,50,50,0.000000" <<<"$dec" \
+          && ok "decisions: per purpose × model — fallback 1/1, error 1/1, p50 200 / p95 290 ms, µ\$ exact" || bad "decisions: $(tr '\n' ' ' <<<"$dec")"
     else bad "schema generate/apply"; tail -5 "$T/dk.log" "$T/ddl.log" 2>/dev/null; fi
     dropdb --if-exists "$DB" >/dev/null 2>&1
 else echo "  · local Postgres (or e2e deps) not available — SQL run skipped"; fi
@@ -77,6 +81,9 @@ H="$T/home"; mkdir -p "$H"
 M() { env HOME="$H" XDG_CONFIG_HOME="$H/.config" AI_MODELS_URL="file://$KIT/tests/fixtures/models.json" "$KIT/bin/ai-models" "$@"; }
 expect "search maps OpenRouter ids to app refs"       0 "acme:frontier-1"      M search acme
 out="$(M suggest 2>&1)"; grep -q "other:no-tools-chat\|pix:image-gen" <<<"$out" && bad "suggest offered a tool-less / image model" || ok "suggest: tool-less + image-only models never offered for agent tasks"
+dec="$(sed -n '/^▶ decide/,/^▶\|^$/p' <<<"$out")"; txt="$(sed '/^▶ decide/,$d' <<<"$out")"
+grep -q "typesafe:jev-1.13" <<<"$dec" && ! grep -q "jev" <<<"$txt" && [ "$(grep -n 'jev' <<<"$dec" | head -1 | grep -c '~')" = 0 ] \
+  && ok "suggest: decide lists decision models (pinned before ~latest), text tasks never get one" || bad "decide suggest: $dec"
 expect "first 'new' saves a baseline"                  0 "baseline saved"       M new
 python3 - "$KIT/tests/fixtures/models.json" "$T/models2.json" <<'PY'
 import json, sys; d = json.load(open(sys.argv[1])); d["data"] = [m for m in d["data"] if m["id"] != "other/no-tools-chat"] + [{**d["data"][0], "id": "acme/frontier-2", "name": "Acme: Frontier 2"}]; json.dump(d, open(sys.argv[2], "w"))
@@ -126,7 +133,7 @@ st="$R2/.agents/ai-stack.md"
 grep -q "Email bot: resend" "$st" && grep -q "SMS bot: telnyx" "$st" && grep -q "device_visitors" "$st" && grep -q "server/modules/assistant" "$st" && grep -q "visitors/bus.ts" "$st" \
   && ok "ai-stack.md drafted from the repo (AI SDK, email/SMS providers, tables, existing assistant + live-visitors modules)" || { bad "ai-stack.md draft"; head -40 "$st"; }
 grep -q "journey-analytics" "$st" && ok "detects Marketing Kit → tracking hand-off to journey-analytics" || bad "growth-stack detection"
-for f in cases.json promptfooconfig.yaml redteam.yaml; do [ -f "$R2/evals/$f" ] || bad "evals/$f not seeded"; done; ok "evals/ seeded (cases + promptfoo eval + red team)"
+for f in cases.json decisions.json promptfooconfig.yaml redteam.yaml; do [ -f "$R2/evals/$f" ] || bad "evals/$f not seeded"; done; ok "evals/ seeded (cases + decision suite + promptfoo eval + red team)"
 grep -q "ai-kit:start" "$R2/CLAUDE.md" && [ ! -f "$R2/AGENTS.md" ] && ok "block in the real CLAUDE.md, no rival AGENTS.md" || bad "instructions block placement"
 grep -q "custom-built assistant" "$R2/CLAUDE.md" && ok "identity rule reaches the repo's agent instructions" || bad "identity rule missing from block"
 grep -q "ai-kit:growth:start" "$R2/.agents/growth-stack.md" && grep -q "ai-kit:surface:start" "$R2/.agents/security-context.md" && ok "hand-off blocks added to Marketing Kit growth-stack + Security Kit context" || bad "sibling hand-offs"
@@ -159,6 +166,10 @@ grep -q "✗ compression() filter" <<<"$out" && [ $code != 0 ] && ok "flags the 
 grep -q "AI_APPROVAL_SECRET set" <<<"$out" && grep -q "key mode: mixed" <<<"$out" && ok "reads key mode + secrets from the repo env" || bad "env checks: $(grep -E 'key mode|APPROVAL' <<<"$out")"
 echo 'app.use(compression({ filter: (req, res) => !String(res.getHeader("Content-Type") || "").startsWith("text/event-stream") && compression.filter(req, res) }));' > "$R2/server/index.ts"
 grep -q "compression skips text/event-stream" <<<"$(D2)" && ok "passes once the filter checks the response Content-Type" || bad "fixed filter still flagged"
+grep -q "typed decisions: off" <<<"$out" && ok "typed decisions reported off until a decide task exists" || bad "decide-off check: $(grep -i decision <<<"$out")"
+mkdir -p "$R2/shared"; printf 'export const aiDefaults = { decide: { model: "typesafe-ai:jev-latest", fallbacks: ["openai:mini"] } };\n' > "$R2/shared/ai-config.ts"
+out="$(D2)"; grep -q "decide → typesafe-ai:jev-latest" <<<"$out" && grep -q "floats — pin a Jev version" <<<"$out" && grep -q "decision suite: [0-9]* cases" <<<"$out" \
+  && ok "decide task: floating jev-latest flagged, seeded decision suite counted" || bad "decide checks: $(grep -iE 'decide|decision|jev' <<<"$out" | tr '\n' ' ')"
 
 echo "▶ an install never dirties its own clone (else self-update is blocked forever)"
 CL="$T/clone"; git -C "$KIT" checkout-index -a --prefix="$CL/"   # the COMMITTED state, file modes included

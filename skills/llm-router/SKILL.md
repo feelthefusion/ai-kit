@@ -1,6 +1,6 @@
 ---
 name: llm-router
-description: "Use when choosing, adding, switching or configuring LLMs / AI models / providers / API keys for a site: one OpenRouter key for every model, or per-provider keys (OpenAI, Anthropic, Google, xAI, Mistral, Groq, DeepSeek, Together, Fireworks, Cohere, Perplexity, Cerebras, Telnyx, Hugging Face, Ollama, Azure, Bedrock, Vertex, any OpenAI-compatible), per-task model selection (chat, copilot, guard, channel replies, automation, summarize, classify, embed), fallbacks on outages, the admin AI console (keys encrypted at rest, model pickers, test button, live feed). The ONLY place model calls originate."
+description: "Use when choosing, adding, switching or configuring LLMs / AI models / providers / API keys for a site: one OpenRouter key for every model, or per-provider keys (OpenAI, Anthropic, Google, xAI, Mistral, Groq, DeepSeek, Together, Fireworks, Cohere, Perplexity, Cerebras, Telnyx, Hugging Face, Ollama, Azure, Bedrock, Vertex, TypeSafe, any OpenAI-compatible), per-task model selection (chat, copilot, guard, channel replies, automation, summarize, classify, embed, decide), typed decisions with Jev (yes/no, pick-one, score + confidence via decide()), fallbacks on outages, the admin AI console (keys encrypted at rest, model pickers, test button, live feed). The ONLY place model calls originate."
 ---
 
 # LLM Router (every model call, any provider, one config)
@@ -21,8 +21,36 @@ Keys come from (first wins): admin console (ai_provider_keys, AES-256-GCM with A
 
 ## Tasks (repo defaults in `shared/ai-config.ts` → the admin DB setting wins; providers.json describes each task)
 `chat` · `copilot` · `guard` (cheapest fast; runs before every customer turn) · `channel_reply` ·
-`automation` · `summarize` · `classify` · `embed` (dims must equal EMBED_DIMS in ai-schema). Add any
-task name — `router.model("my-task")` works once it has a setting. Pick with `ai-models suggest`.
+`automation` · `summarize` · `classify` · `embed` (dims must equal EMBED_DIMS in ai-schema) · `decide`
+(typed decisions, below). Add any task name — `router.model("my-task")` works once it has a setting.
+Pick with `ai-models suggest`.
+
+## Typed decisions — `decide.ts` (task `decide`)
+A judgment your code acts on (route, gate, rank, verify) is a DECISION, not text: ask it as typed
+questions and get probabilities back — nothing to parse, answers only from your options.
+```ts
+import { decide, pick, yes, level } from "./decide";
+const d = await decide(router, { purpose: "triage", state: { message }, onCall: recordDecision(db), questions: {
+  needs_reply: { type: "boolean", instructions: "Is this from a person expecting a reply?" },
+  team: { type: "choice", instructions: "Who handles it?", criteria: { billing: "payments, refunds", shipping: "delivery, tracking" } },
+  urgency: { type: "score", instructions: "How urgent?", criteria: ["routine", "soon", "urgent"] },
+}});
+yes(d, "needs_reply", 0.15) · pick(d, "team", 0.6) /* undefined when unsure */ · level(d, "urgency") /* 0..2 */
+```
+| `decide` ref | serves | key |
+|---|---|---|
+| `typesafe-ai:jev-1.13.0` (pin) / `typesafe-ai:jev-latest` | TypeSafe direct — fastest (≈0.3 s vs ≈0.7 s via OpenRouter in one published test) | `TYPESAFE_AI_API_KEY` or `TYPESAFE_API_KEY` |
+| same ref in `openrouter` / `mixed` mode | OpenRouter Decisions API as `typesafe/jev-1.13` · `~typesafe/jev-latest` (exact cost reported) | `OPENROUTER_API_KEY` |
+| `gateway:typesafe-ai/jev` | Vercel AI Gateway | `AI_GATEWAY_API_KEY` |
+| `openai:` / `anthropic:` / `google:` `<small model>` | the provider's LLM-backed evaluation adapter — same questions, no calibrated distribution for choice/score | that provider's key |
+Recommended: `decide: { model: "typesafe-ai:jev-1.13.0", fallbacks: ["<cheap openai|anthropic|google model>"] }`.
+Jev pricing: $0.042 per M input tokens, output free; 32k context. Jev never writes text — `summarize`
+and every reply stay on text models. Confidence: `d.confidence[id]` 0–1 (Jev's own for choice/score;
+|2p−1| for yes/no; undefined from LLM adapters, where `pick` then trusts the answer like a classifier).
+- Fallback chain works like text: 408/409/429/5xx/network → next ref; 4xx (bad question) throws.
+- `router.has("decide")` gates every typed path — without the task each feature keeps its text path.
+- Use the `typesafe-ai` skill (live TypeSafe docs) when writing questions: criteria are the definitions.
+- Pin a version; ai-evolve's decision suite promotes a newer Jev only after it matches the site's cases.
 
 ## Wiring
 ```ts
@@ -44,4 +72,4 @@ mountAiAdmin(adminRouter, db, router, defaults, (req) => req.user?.id);   // beh
 - Cost: OpenRouter returns exact cost per call (`providerMetadata.openrouter.usage.cost`); BYOK cost is computed from ai_models pricing (refreshed by ai-evolve). Both land in ai_calls via ai-analytics.
 
 ## Works with →
-`site-agent` (every agent gets its model here) · `ai-analytics` (middleware tap → ai_calls) · `ai-evolve` (writes ai_models, variants route through `pickVariant`) · `ai-knowledge` (`router.embedding`) · `live-bus` (settings invalidation).
+`site-agent` (every agent gets its model here; guard stage 2 uses decide) · `ai-channels` (triage) · `ai-automations` (gates) · `ml-lab` (labels) · `ai-analytics` (middleware tap → ai_calls) · `ai-evolve` (writes ai_models, variants route through `pickVariant`) · `ai-knowledge` (`router.embedding`, rerank via decide) · `live-bus` (settings invalidation).

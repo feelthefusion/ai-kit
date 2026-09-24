@@ -5,6 +5,8 @@
  *   ingest()   chunk → content-hash → embed only what changed (embedMany) → upsert. Re-run anytime;
  *              wire to the bus so product/page edits re-index themselves (living knowledge).
  *   search()   vector (cosine) + keyword (ts_rank) fused with reciprocal-rank fusion, audience-filtered.
+ *   rerank()   with a "decide" task (Jev): one typed call scores 3×k fused candidates for "does this
+ *              passage help answer the question?" and keeps the best k. AI_RERANK=off disables it.
  *   asContext() the text block site-agent puts in the instructions (marked as DATA, not instructions).
  *
  * Setup once: CREATE EXTENSION IF NOT EXISTS vector;  (+ the two indexes at the bottom of this file)
@@ -15,6 +17,7 @@ import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { aiKnowledge } from "../../ai-kit/references/ai-schema";
 import type { LlmRouter } from "../../llm-router/references/providers";
+import { decide, type DecisionTelemetry, type Questions } from "../../llm-router/references/decide";
 
 type Db = NodePgDatabase<Record<string, never>>;
 export type Audience = "public" | "customer" | "staff";
@@ -63,7 +66,27 @@ export async function remove(db: Db, source: string, sourceId: string) {
 
 const visible: Record<Audience, Audience[]> = { public: ["public"], customer: ["public", "customer"], staff: ["public", "customer", "staff"] };
 
-export async function search(db: Db, router: LlmRouter, query: string, audience: Audience, k = 6): Promise<Hit[]> {
+type OnCall = (t: DecisionTelemetry) => void | Promise<void>;
+
+/** Order candidates by P(passage helps answer the question); ties keep fusion order. Best-effort. */
+export async function rerank(router: LlmRouter, query: string, hits: Hit[], k: number, onCall?: OnCall): Promise<Hit[]> {
+  if (hits.length <= 1) return hits.slice(0, k);
+  const questions: Questions = Object.fromEntries(hits.map((_, i) => [`p${i}`, {
+    type: "boolean", instructions: `Does passage ${i} contain information that helps answer the customer's question?`,
+  }]));
+  try {
+    const d = await decide(router, {
+      purpose: "rerank", questions, onCall,
+      state: { question: query, passages: hits.map((h, i) => ({ passage: i, title: h.title, text: h.body.slice(0, 1200) })) },
+    });
+    const pr = (i: number) => (d.answers as Record<string, { probability?: number }>)[`p${i}`]?.probability ?? 0;
+    return hits.map((h, i) => ({ h: { ...h, score: pr(i) }, i })).sort((a, b) => b.h.score - a.h.score || a.i - b.i).slice(0, k).map((x) => x.h);
+  } catch { return hits.slice(0, k); }
+}
+
+export async function search(db: Db, router: LlmRouter, query: string, audience: Audience, k = 6, o: { onCall?: OnCall } = {}): Promise<Hit[]> {
+  const typed = process.env.AI_RERANK !== "off" && (await router.has("decide"));
+  const pool = typed ? k * 3 : k;
   const { embedding } = await embed({ model: await router.embedding("embed"), value: query });
   const vec = `[${embedding.join(",")}]`;
   const aud = sql.join(visible[audience].map((a) => sql`${a}`), sql`, `);
@@ -72,15 +95,15 @@ export async function search(db: Db, router: LlmRouter, query: string, audience:
          t as (select id, row_number() over (order by ts_rank(to_tsvector('english', body), websearch_to_tsquery('english', ${query})) desc) as r
                from ai_knowledge where audience in (${aud}) and to_tsvector('english', body) @@ websearch_to_tsquery('english', ${query}) limit 30),
          f as (select id, sum(1.0 / (60 + r)) as score from (select * from v union all select * from t) u group by id)
-    select k.title, k.body, k.url, k.source, f.score from f join ai_knowledge k using (id) order by f.score desc limit ${k}`);
-  return r.rows;
+    select k.title, k.body, k.url, k.source, f.score from f join ai_knowledge k using (id) order by f.score desc limit ${pool}`);
+  return typed ? rerank(router, query, r.rows, k, o.onCall) : r.rows;
 }
 
 /** For AgentDeps.knowledge — quoted, attributed, clearly data. */
-export function knowledgeFor(db: Db, router: LlmRouter) {
+export function knowledgeFor(db: Db, router: LlmRouter, onCall?: OnCall) {
   return async (query: string, audience: Audience) => {
     if (!query.trim()) return "";
-    const hits = await search(db, router, query, audience);
+    const hits = await search(db, router, query, audience, 6, { onCall });
     return hits.map((h, i) => `[${i + 1}] ${h.title ?? h.source}${h.url ? ` (${h.url})` : ""}\n${h.body.slice(0, 1200)}`).join("\n\n");
   };
 }

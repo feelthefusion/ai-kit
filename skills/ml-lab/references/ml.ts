@@ -1,7 +1,9 @@
 /**
  * ml-lab — machine learning on the site's OWN data, feeding every other owner.
  *
- *   labelConversation()  classify task → intent / sentiment / resolved / summary → ai_conversations
+ *   labelConversation()  intent / sentiment / resolved / summary → ai_conversations. With a "decide"
+ *                        task: ONE typed decision (Jev) for the labels + confidence per label (train
+ *                        only on confident ones), summary on the summarize model. Else: classify task.
  *                        (powers ai-analytics top_intents and ai-evolve's win signal).
  *   trainIntent()        logistic regression on visitor-intel SessionSignals → converted? Pure TS,
  *                        trains in milliseconds on tens of thousands of sessions; weights live in
@@ -21,6 +23,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import { aiPredictions } from "../../ai-kit/references/ai-schema";
 import type { LlmRouter } from "../../llm-router/references/providers";
+import { decide, level, pick, yes, type DecisionTelemetry } from "../../llm-router/references/decide";
 import type { SessionSignals } from "../../visitor-intel/references/identity";
 
 type Db = NodePgDatabase<Record<string, never>>;
@@ -32,7 +35,31 @@ export const ConversationLabel = z.object({
   summary: z.string().max(240),
 });
 
-export async function labelConversation(router: LlmRouter, transcript: string) {
+const SENTIMENT = ["negative", "neutral", "positive"] as const;
+
+export async function labelConversation(router: LlmRouter, transcript: string, o: { onCall?: (t: DecisionTelemetry) => void | Promise<void>; conversationId?: string } = {}):
+  Promise<z.infer<typeof ConversationLabel> & { confidence?: { intent?: number; sentiment?: number; resolved?: number } }> {
+  if (await router.has("decide")) {
+    const intents = ConversationLabel.shape.intent.options;
+    const d = await decide(router, {
+      purpose: "label", state: transcript.slice(-12_000), onCall: o.onCall, context: { conversationId: o.conversationId },
+      questions: {
+        intent: { type: "choice", instructions: "What did the customer mainly want in this support conversation?", criteria: Object.fromEntries(intents.map((i) => [i, i.replace(/_/g, " ")])) },
+        sentiment: { type: "score", instructions: "How did the customer feel by the end of the conversation?", criteria: [...SENTIMENT] },
+        resolved: { type: "boolean", instructions: "Was the customer's need met in the conversation?" },
+      },
+    });
+    const { text } = await generateText({
+      model: await router.model((await router.has("summarize")) ? "summarize" : "classify"), temperature: 0, maxOutputTokens: 120,
+      instructions: "Summarize this support conversation in one sentence (under 240 characters): what the customer wanted and what happened.",
+      prompt: transcript.slice(-12_000),
+    });
+    return {
+      intent: (pick(d, "intent", 0) ?? "other") as z.infer<typeof ConversationLabel>["intent"],
+      sentiment: SENTIMENT[Math.min(2, Math.max(0, level(d, "sentiment")))], resolved: yes(d, "resolved"),
+      summary: text.trim().slice(0, 240), confidence: d.confidence,
+    };
+  }
   const { output } = await generateText({
     model: await router.model("classify"), temperature: 0,
     output: Output.object({ schema: ConversationLabel }),

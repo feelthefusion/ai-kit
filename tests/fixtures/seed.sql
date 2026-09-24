@@ -35,6 +35,13 @@ INSERT INTO ai_automation_runs (id, automation_id, event_id, status, actions, st
  ('00000000-0000-0000-0000-0000000000a1', 'vip-tag', 'e1', 'done',    1, now() - interval '1 day', now() - interval '1 day' + interval '4 seconds'),
  ('00000000-0000-0000-0000-0000000000a2', 'vip-tag', 'e2', 'done',    1, now() - interval '1 day', now() - interval '1 day' + interval '6 seconds'),
  ('00000000-0000-0000-0000-0000000000a3', 'vip-tag', 'e3', 'dry_run', 0, now() - interval '1 day', now() - interval '1 day' + interval '2 seconds');
+-- typed decisions (purpose set, no conversation: never a turn, never in cost per resolution)
+INSERT INTO ai_calls (task, purpose, ref, provider, model_id, served_by, channel, input_tokens, output_tokens, cost_micros, latency_ms, steps, tool_calls, finish_reason, error, created_at) VALUES
+ ('decide', 'guard',  'typesafe-ai:jev-1.13.0', 'typesafe-ai', 'jev-1.13.0', 'native', 'web',   60, 0,   5, 100, 0, 0, 'decision', NULL, now() - interval '1 day'),
+ ('decide', 'guard',  'typesafe-ai:jev-1.13.0', 'typesafe-ai', 'jev-1.13.0', 'native', 'web',   60, 0,   5, 300, 0, 0, 'decision', NULL, now() - interval '1 day'),
+ ('decide', 'guard',  'openai:mini',            'openai',      'mini',       'native', 'web',   60, 5, 100, 900, 0, 0, 'fallback', NULL, now() - interval '1 day'),
+ ('decide', 'triage', 'typesafe-ai:jev-1.13.0', 'typesafe-ai', 'jev-1.13.0', 'native', 'email', NULL, NULL, NULL, 50, 0, 0, 'error', 'APICallError: 503', now() - interval '1 day');
+
 INSERT INTO ai_calls (task, ref, provider, model_id, served_by, automation_run_id, channel, cost_micros, latency_ms, steps, tool_calls, created_at) VALUES
  ('automation', 'openai:m3', 'openai', 'm3', 'native', '00000000-0000-0000-0000-0000000000a1', 'automation', 5000, 1200, 2, 1, now() - interval '1 day'),
  ('automation', 'openai:m3', 'openai', 'm3', 'native', '00000000-0000-0000-0000-0000000000a1', 'automation', 5000, 1300, 1, 0, now() - interval '1 day'),

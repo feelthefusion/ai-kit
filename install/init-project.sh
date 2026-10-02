@@ -23,6 +23,16 @@ KIT_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 . "$KIT_ROOT/install/lib.sh"
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$REPO"
+
+# A repo can opt out of every kit: `<!-- kit:opt-out -->` in its CLAUDE.md or AGENTS.md, or a
+# .claude/kit-optout file (the marker the Skill Starter Kit honors too). Such a repo is never
+# initialized, whoever runs this: the global instructions tell agents to init any repo missing
+# this kit's files, and this script edits the root .gitignore — in some repos an input to
+# something that must not move (vibes: the app's OTA fingerprint).
+if [ -f .claude/kit-optout ] || grep -qs 'kit:opt-out' CLAUDE.md AGENTS.md; then
+    echo "✗ $(pwd) opts out of the kits (kit:opt-out in CLAUDE.md/AGENTS.md, or .claude/kit-optout). Nothing was written."
+    exit 0
+fi
 echo "── ai-init · $REPO"
 mkdir -p .agents evals
 

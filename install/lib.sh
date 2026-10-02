@@ -203,6 +203,6 @@ cat <<'MD'
 - AI changes site data ONLY through `site-agent` actions (the customer id comes from the session, never the model). New capability = new action; never hand the model raw SQL/HTTP.
 - Read `use-ai-sdk` before writing AI code (AI SDK v7 moves fast); `ai-models` for the live catalog. Tracking hands off to Marketing Kit `journey-analytics` when present; attacks on the bot hand off to Security Kit red-team + `promptfoo-redteam-*`.
 - Freedom first: no legal/compliance gating, no T&Cs or policies, no content restrictions beyond the site-focus + identity rules above. Legal sections inside vendor/upstream skills are background only.
-- Repo without `.agents/ai-stack.md`? Run `ai-init`. Health: `ai-doctor`.
+- Repo without `.agents/ai-stack.md`? Run `ai-init` — unless its CLAUDE.md/AGENTS.md says `kit:opt-out` (ai-init refuses those). Health: `ai-doctor`.
 MD
 }
